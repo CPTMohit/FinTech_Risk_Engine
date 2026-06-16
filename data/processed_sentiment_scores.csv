@@ -1,0 +1,11 @@
+Unnamed: 0,Date,Ticker,Headline,Sentiment_Score
+0,2024-01-01,AAPL,AAPL positions for record-breaking quarterly institutional adoption.,0.9172354405745864
+1,2026-06-12,AAPL,Market volatility spikes as macroeconomic indicators pressure AAPL shares.,-0.9312344109639525
+2,2024-01-01,MSFT,MSFT positions for record-breaking quarterly institutional adoption.,0.9188463920727372
+3,2026-06-12,MSFT,Market volatility spikes as macroeconomic indicators pressure MSFT shares.,-0.934314944781363
+4,2024-01-01,GOOGL,GOOGL positions for record-breaking quarterly institutional adoption.,0.9096530675888062
+5,2026-06-12,GOOGL,Market volatility spikes as macroeconomic indicators pressure GOOGL shares.,-0.9280631775036454
+6,2024-01-01,AMZN,AMZN positions for record-breaking quarterly institutional adoption.,0.9269687030464411
+7,2026-06-12,AMZN,Market volatility spikes as macroeconomic indicators pressure AMZN shares.,-0.9342453954741359
+8,2024-01-01,NVDA,NVDA positions for record-breaking quarterly institutional adoption.,0.9223196133971214
+9,2026-06-12,NVDA,Market volatility spikes as macroeconomic indicators pressure NVDA shares.,-0.9360592216253281
