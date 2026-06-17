@@ -47,6 +47,8 @@ from src.ui import (
     render_strength_meter,
     render_signals_table,
     render_position_table,
+    render_option_chain_panel,
+    render_trade_card,
     THEME_CONFIG
 )
 
@@ -368,6 +370,46 @@ def fetch_greeks(
         vega
     )
 
+def fetch_option_chain(
+    spot,
+    symbol
+):
+
+    if symbol == "NIFTY":
+
+        strike_step = 50
+
+    else:
+
+        strike_step = 100
+
+    atm_strike = (
+        round(
+            spot / strike_step
+        ) * strike_step
+    )
+
+    return {
+
+        "atm_strike":
+            atm_strike,
+
+        "call_oi":
+            2500000,
+
+        "put_oi":
+            3200000,
+
+        "call_volume":
+            450000,
+
+        "put_volume":
+            510000,
+
+        "max_pain":
+            atm_strike
+
+    }
 
 def classify_oi_buildup(change_pct, oi):
 
@@ -382,6 +424,70 @@ def classify_oi_buildup(change_pct, oi):
 
     else:
         return "LONG UNWINDING" 
+
+def generate_trade_decision(
+    state
+):
+
+    score = 0
+
+    reasons = []
+
+    if state["trend"] in [
+        "BULLISH",
+        "STRONG BULLISH"
+    ]:
+
+        score += 25
+
+        reasons.append(
+            "Bullish Trend"
+        )
+
+    if state["pcr"] > 0.9:
+
+        score += 20
+
+        reasons.append(
+            "PCR Supportive"
+        )
+
+    if state["oi_structure"] in [
+        "LONG BUILDUP",
+        "SHORT COVERING"
+    ]:
+
+        score += 20
+
+        reasons.append(
+            "Positive OI Structure"
+        )
+
+    if state["delta"] > 0:
+
+        score += 15
+
+        reasons.append(
+            "Positive Delta"
+        )
+
+    if state["call_volume"] < state["put_volume"]:
+
+        score += 10
+
+        reasons.append(
+            "Put Side Dominance"
+        )
+
+    confidence = min(
+        score,
+        95
+    )
+
+    return (
+        confidence,
+        reasons
+    )
 
 def build_live_state(
     market_data
@@ -512,18 +618,34 @@ def build_live_state(
                 strike,
                 option_type
         )
-        print(
-            "DEBUG",
-            symbol,
-            delta,
-            gamma,
-            theta,
-            vega
+
+        option_chain = fetch_option_chain(
+                spot,
+                symbol
         )
 
+        confidence, reasons = (
+            generate_trade_decision(
+                {
+                    "trend": trend,
+                    "pcr": pcr,
+                    "oi_structure": oi_structure,
+                    "delta": delta,
+                    "call_volume": option_chain["call_volume"],
+                    "put_volume": option_chain["put_volume"]
+                }
+            )
+            )
+
         states[
-            asset_name
-        ] = {
+                asset_name
+            ] = {
+
+            "trade_confidence":
+                confidence,
+
+            "trade_reasons":
+                reasons,
 
             "spot":
                 spot,
@@ -569,6 +691,24 @@ def build_live_state(
             "vega":
                 vega,
 
+            "atm_strike":
+                     option_chain["atm_strike"],
+
+            "call_oi":
+                    option_chain["call_oi"],
+
+            "put_oi":
+                    option_chain["put_oi"],
+
+            "call_volume":
+                    option_chain["call_volume"],
+
+            "put_volume":
+                    option_chain["put_volume"],
+
+            "max_pain":
+                    option_chain["max_pain"],
+
             "opt_price":
                 opt_price,
 
@@ -582,6 +722,7 @@ def build_live_state(
 
             "mock_size":
                 lot_size
+                
         }
 
     return states
@@ -627,21 +768,22 @@ with col1:
     render_asset_card(
         "NIFTY 50 INDEX",
         global_fund_states[
-            "NIFTY 50 INDEX"
-        ]
+           "NIFTY 50 INDEX"
+    ] 
     )
 )
 
 with col2:
 
     st.html(
-    render_asset_card(
-        "BANK NIFTY INDEX",
-        global_fund_states[
-            "BANK NIFTY INDEX"
-        ]
+         render_asset_card(
+            "BANK NIFTY INDEX",
+            global_fund_states[
+                "BANK NIFTY INDEX"
+            ]
+        )
     )
-)
+
 
 # =====================================================
 # STRENGTH METER
@@ -774,6 +916,46 @@ st.html(
 
     </table>
     """,
+)
+
+best_asset = max(
+    global_fund_states.items(),
+    key=lambda x: x[1]["trade_confidence"]
+)
+
+best_asset_name = best_asset[0]
+
+best_asset_data = best_asset[1]
+
+# =====================================================
+# TRADE OF THE MOMENT
+# =====================================================
+
+st.subheader(
+    "🎯 Trade Recommendation Engine"
+)
+
+st.html(
+    render_trade_card(
+        best_asset_name,
+        best_asset_data
+    ),
+)
+
+
+
+# =====================================================
+# OPTION CHAIN INTELLIGENCE
+# =====================================================
+
+st.subheader(
+    "🎯 Option Chain Intelligence"
+)
+
+st.html(
+    render_option_chain_panel(
+        global_fund_states
+    ),
 )
 
 # =====================================================

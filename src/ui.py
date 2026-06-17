@@ -139,7 +139,7 @@ def render_asset_card(asset_title, state):
 # =====================================================
 
 def render_strength_meter(title, states):
-
+    
     nifty_prob = (
         states["NIFTY 50 INDEX"]["probability"]
     )
@@ -364,3 +364,86 @@ def render_position_table(states):
         total_pnl,
         summary_color
     )
+
+def render_option_chain_panel(states):
+
+    html = ""
+
+    for asset_name, state in states.items():
+
+        html += f"""
+        <div class="global-ticker-card">
+
+            <h4>{asset_name}</h4>
+
+            <b>ATM Strike:</b>
+            {state['atm_strike']}
+
+            <br>
+
+            <b>Call OI:</b>
+            {state['call_oi']:,}
+
+            <br>
+
+            <b>Put OI:</b>
+            {state['put_oi']:,}
+
+            <br>
+
+            <b>Call Volume:</b>
+            {state['call_volume']:,}
+
+            <br>
+
+            <b>Put Volume:</b>
+            {state['put_volume']:,}
+
+            <br>
+
+            <b>Max Pain:</b>
+            {state['max_pain']}
+
+        </div>
+        """
+
+    return html
+
+def render_trade_card(
+    asset_name,
+    state
+):
+
+    reasons_html = "<br>".join(
+        [
+            f"✓ {r}"
+            for r in state[
+                "trade_reasons"
+            ]
+        ]
+    )
+
+    return f"""
+    <div class="global-ticker-card">
+
+        <h3>
+            🎯 TRADE OF THE MOMENT
+        </h3>
+
+        <b>
+            {state['opt_symbol']}
+        </b>
+
+        <br><br>
+
+        Confidence:
+        <b>
+            {state['trade_confidence']}%
+        </b>
+
+        <br><br>
+
+        {reasons_html}
+
+    </div>
+    """
