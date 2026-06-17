@@ -91,6 +91,11 @@ def render_asset_card(asset_title, state):
         </div>
 
         <div>
+            Trend:
+            <b>{state['trend']}</b>
+        </div>
+
+        <div>
             PCR:
             <b>{state['pcr']:.2f}</b>
         </div>
@@ -210,6 +215,8 @@ def render_signals_table(states):
             <td>{state['oi']:,}</td>
 
             <td>{state['oi_structure']}</td>
+
+            <td>{state['trend']}</td>
 
             <td>{state['signal_score']}</td>
 

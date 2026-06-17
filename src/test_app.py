@@ -289,6 +289,39 @@ def calculate_signal(
 # =====================================================
 # BUILD LIVE STATE
 # =====================================================
+def calculate_trend(
+    change,
+    pcr,
+    oi_structure
+):
+
+    if (
+        change > 0.30
+        and pcr > 0.90
+        and oi_structure == "LONG BUILDUP"
+    ):
+        return "STRONG BULLISH"
+
+    elif (
+        change > 0
+        and pcr > 0.80
+    ):
+        return "BULLISH"
+
+    elif (
+        change < -0.30
+        and pcr < 0.80
+        and oi_structure == "SHORT BUILDUP"
+    ):
+        return "STRONG BEARISH"
+
+    elif (
+        change < 0
+        and pcr < 0.90
+    ):
+        return "BEARISH"
+
+    return "SIDEWAYS"
 
 def classify_oi_buildup(change_pct, oi):
 
@@ -344,9 +377,17 @@ def build_live_state(
             pcr
         )
         oi_structure = classify_oi_buildup(
-    change,
-    oi
-)
+            change,
+            oi
+        )
+
+        trend = calculate_trend(
+            change,
+            pcr,
+            oi_structure
+        )
+
+
 
         if action == "BUY CALL":
 
@@ -443,13 +484,17 @@ def build_live_state(
             "pcr":
                 pcr,
 
-            "oi":
-                oi,
-                "oi_structure":
-    oi_structure,
+           "oi":
+                 oi,
+
+            "oi_structure":
+                  oi_structure,
+
+            "trend":
+                    trend,
 
             "opt_price":
-                opt_price,
+                 opt_price,
 
             "opt_symbol":
                 f"{symbol} "
@@ -566,6 +611,7 @@ st.html(
                 <th>PCR</th>
                 <th>OI</th>
                 <th>OI BUILDUP</th>
+                <th>TREND</th>
                 <th>SCORE</th>
                 <th>PROBABILITY</th>
 
@@ -689,6 +735,9 @@ if highest_prob_asset:
             PCR:
             <b>{asset_data['pcr']:.2f}</b>
             <br>
+
+            Trend:
+                <b>{asset_data['trend']}</b>
 
         OI Buildup:
                 <b>{asset_data['oi_structure']}</b>
