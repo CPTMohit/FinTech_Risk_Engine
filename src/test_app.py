@@ -323,6 +323,52 @@ def calculate_trend(
 
     return "SIDEWAYS"
 
+def fetch_greeks(
+    spot,
+    strike,
+    option_type
+):
+
+
+    moneyness = abs(
+        spot - strike
+    ) / spot
+
+    delta = (
+        0.70
+        if option_type == "CE"
+        else -0.70
+    )
+
+    gamma = (
+        round(
+            0.02 - (moneyness * 0.01),
+            4
+        )
+    )
+
+    theta = (
+        round(
+            -4.5 - (moneyness * 10),
+            2
+        )
+    )
+
+    vega = (
+        round(
+            8 + (moneyness * 20),
+            2
+        )
+    )
+
+    return (
+        delta,
+        gamma,
+        theta,
+        vega
+    )
+
+
 def classify_oi_buildup(change_pct, oi):
 
     if change_pct > 0.30 and oi > 100000000:
@@ -456,6 +502,25 @@ def build_live_state(
             )
         )
 
+        (
+            delta,
+            gamma,
+            theta,
+            vega
+        ) = fetch_greeks(
+                spot,
+                strike,
+                option_type
+        )
+        print(
+            "DEBUG",
+            symbol,
+            delta,
+            gamma,
+            theta,
+            vega
+        )
+
         states[
             asset_name
         ] = {
@@ -489,12 +554,23 @@ def build_live_state(
 
             "oi_structure":
                   oi_structure,
-
             "trend":
-                    trend,
+                trend,
+
+            "delta":
+                delta,
+
+            "gamma":
+                gamma,
+
+            "theta":
+                theta,
+
+            "vega":
+                vega,
 
             "opt_price":
-                 opt_price,
+                opt_price,
 
             "opt_symbol":
                 f"{symbol} "
@@ -613,6 +689,10 @@ st.html(
                 <th>OI BUILDUP</th>
                 <th>TREND</th>
                 <th>SCORE</th>
+                <th>DELTA</th>
+                <th>GAMMA</th>
+                <th>THETA</th>
+                <th>VEGA</th>
                 <th>PROBABILITY</th>
 
             </tr>

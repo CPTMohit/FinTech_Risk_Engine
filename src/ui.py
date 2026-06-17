@@ -110,7 +110,27 @@ def render_asset_card(asset_title, state):
             <b>{state['signal_score']}</b>
         </div>
 
+        <div>
+    Delta:
+    <b>{state['delta']:.2f}</b>
     </div>
+
+    <div>
+        Gamma:
+        <b>{state['gamma']:.4f}</b>
+    </div>
+
+    <div>
+        Theta:
+        <b>{state['theta']:.2f}</b>
+    </div>
+
+    <div>
+        Vega:
+        <b>{state['vega']:.2f}</b>
+    </div>
+
+</div>
     """
 
 
@@ -218,10 +238,17 @@ def render_signals_table(states):
 
             <td>{state['trend']}</td>
 
-            <td>{state['signal_score']}</td>
+           <td>{state['signal_score']}</td>
+
+            <td>{state['delta']:.2f}</td>
+
+            <td>{state['gamma']:.4f}</td>
+
+            <td>{state['theta']:.2f}</td>
+
+            <td>{state['vega']:.2f}</td>
 
             <td>{state['probability']:.1f}%</td>
-
         </tr>
         """
 
