@@ -369,62 +369,154 @@ def fetch_greeks(
         vega
     )
 
+def discover_atm_contracts(
+    smart,
+    symbol,
+    atm_strike
+):
+    if symbol != "NIFTY":
+
+     return {
+        "ce_symbol": "",
+        "ce_token": "",
+        "pe_symbol": "",
+        "pe_token": ""
+    }
+
+    search_term = (
+        f"NIFTY24DEC29{atm_strike}"
+    )
+
+    print(
+    "SEARCH TERM =",
+    search_term
+)
+
+    result = smart.searchScrip(
+        "NFO",
+        search_term
+    )
+
+    ce_symbol = ""
+    ce_token = ""
+
+    pe_symbol = ""
+    pe_token = ""
+
+    if (
+            result is None
+            or not result.get("status")
+            or result.get("data") is None
+        ):
+            print("SEARCH RESULT =", result)
+            return {
+                "ce_symbol": "",
+                "ce_token": "",
+                "pe_symbol": "",
+                "pe_token": ""
+            }
+
+    for row in result["data"]:
+
+            ts = row["tradingsymbol"]
+
+            if ts.endswith("CE"):
+
+                ce_symbol = ts
+                ce_token = row["symboltoken"]
+
+            elif ts.endswith("PE"):
+
+                pe_symbol = ts
+                pe_token = row["symboltoken"]
+
+    return {
+            "ce_symbol": ce_symbol,
+            "ce_token": ce_token,
+            "pe_symbol": pe_symbol,
+            "pe_token": pe_token
+        }
+
 def fetch_option_chain(
     spot,
     symbol
 ):
 
     if symbol == "NIFTY":
-
-        strike_step = 50
-
+        import math
+        atm_strike = (
+            math.ceil(spot / 100)
+            * 100
+        )
     else:
+        atm_strike = (
+            int(round(spot / 100))
+            * 100
+        )
 
-        strike_step = 100
-
-    atm_strike = (
-        round(
-            spot / strike_step
-        ) * strike_step
+    print(
+        "SPOT =",
+        spot,
+        "ATM =",
+        atm_strike
     )
     smart = initialize_angel()
+
+    contracts = discover_atm_contracts(
+    smart,
+    symbol,
+    atm_strike
+)
+
+    print(contracts)
 
     ce_ltp = 0
     pe_ltp = 0
 
     try:
-        ce_data = smart.ltpData(
+
+        if contracts["ce_symbol"]:
+
+            ce_data = smart.ltpData(
             "NFO",
-            "NIFTY24DEC2924000CE",
-            "61748"
+            contracts["ce_symbol"],
+            contracts["ce_token"]
         )
 
-        ce_ltp = ce_data["data"]["ltp"]
+            ce_ltp = ce_data["data"]["ltp"]
 
     except Exception:
-        pass
+        ce_ltp = 0
+
     try:
-        pe_data = smart.ltpData(
+
+        if contracts["pe_symbol"]:
+
+            pe_data = smart.ltpData(
             "NFO",
-            "NIFTY24DEC2924000PE",
-            "61749"
+            contracts["pe_symbol"],
+            contracts["pe_token"]
         )
-        pe_ltp = pe_data["data"]["ltp"]
+
+            pe_ltp = pe_data["data"]["ltp"]
+
     except Exception:
         pe_ltp = 0
 
+
+    print(contracts)
     return {
-        "atm_strike": atm_strike,
-        "atm_ce": f"{symbol} {atm_strike} CE",
-        "atm_pe": f"{symbol} {atm_strike} PE",
-        "ce_ltp": ce_ltp,
-        "pe_ltp": pe_ltp,
-        "call_oi": 2500000,
-        "put_oi": 3200000,
-        "call_volume": 450000,
-        "put_volume": 510000,
-        "max_pain": atm_strike
-    }
+    "atm_strike": atm_strike,
+    "atm_ce": contracts["ce_symbol"],
+    "atm_pe": contracts["pe_symbol"],
+    "ce_ltp": ce_ltp,
+    "pe_ltp": pe_ltp,
+    "call_oi": 2500000,
+    "put_oi": 3200000,
+    "call_volume": 450000,
+    "put_volume": 510000,
+    "max_pain": atm_strike
+}
 
 def classify_oi_buildup(change_pct, oi):
 
