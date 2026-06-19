@@ -6,6 +6,7 @@ Author: Mohit Singh
 
 import os
 import sys
+import SmartApi
 import streamlit as st
 from datetime import datetime
 
@@ -141,8 +142,6 @@ def initialize_angel():
 # =====================================================
 # LIVE MARKET DATA
 # =====================================================
-
-@st.cache_data(ttl=5)
 def fetch_live_market_data():
 
     smart = initialize_angel()
@@ -388,27 +387,43 @@ def fetch_option_chain(
             spot / strike_step
         ) * strike_step
     )
+    smart = initialize_angel()
+
+    ce_ltp = 0
+    pe_ltp = 0
+
+    try:
+        ce_data = smart.ltpData(
+            "NFO",
+            "NIFTY24DEC2924000CE",
+            "61748"
+        )
+
+        ce_ltp = ce_data["data"]["ltp"]
+
+    except Exception:
+        pass
+    try:
+        pe_data = smart.ltpData(
+            "NFO",
+            "NIFTY24DEC2924000PE",
+            "61749"
+        )
+        pe_ltp = pe_data["data"]["ltp"]
+    except Exception:
+        pe_ltp = 0
 
     return {
-
-        "atm_strike":
-            atm_strike,
-
-        "call_oi":
-            2500000,
-
-        "put_oi":
-            3200000,
-
-        "call_volume":
-            450000,
-
-        "put_volume":
-            510000,
-
-        "max_pain":
-            atm_strike
-
+        "atm_strike": atm_strike,
+        "atm_ce": f"{symbol} {atm_strike} CE",
+        "atm_pe": f"{symbol} {atm_strike} PE",
+        "ce_ltp": ce_ltp,
+        "pe_ltp": pe_ltp,
+        "call_oi": 2500000,
+        "put_oi": 3200000,
+        "call_volume": 450000,
+        "put_volume": 510000,
+        "max_pain": atm_strike
     }
 
 def classify_oi_buildup(change_pct, oi):
@@ -692,7 +707,22 @@ def build_live_state(
                 vega,
 
             "atm_strike":
-                     option_chain["atm_strike"],
+                 option_chain["atm_strike"],
+
+            "atm_strike":
+                option_chain["atm_strike"],
+
+            "atm_ce":
+                option_chain["atm_ce"],
+
+            "atm_pe":
+                option_chain["atm_pe"],
+
+            "ce_ltp":
+                option_chain["ce_ltp"],
+
+            "pe_ltp":
+            option_chain["pe_ltp"],
 
             "call_oi":
                     option_chain["call_oi"],

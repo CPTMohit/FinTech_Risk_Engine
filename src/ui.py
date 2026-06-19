@@ -377,9 +377,25 @@ def render_option_chain_panel(states):
             <h4>{asset_name}</h4>
 
             <b>ATM Strike:</b>
-            {state['atm_strike']}
+        {state['atm_strike']}
 
-            <br>
+<br>
+
+        <b>ATM CE:</b>
+        {state['atm_ce']}
+
+        <br>
+
+        <b>ATM PE:</b>
+        {state['atm_pe']}
+
+<br>
+        <b>CE LTP:</b>
+        ₹{state['ce_ltp']}
+<br>
+
+        <b>PE LTP:</b>
+        ₹{state['pe_ltp']}
 
             <b>Call OI:</b>
             {state['call_oi']:,}
