@@ -228,16 +228,47 @@ def fetch_live_market_data():
 # PCR DATA
 # =====================================================
 
-@st.cache_data(ttl=60)
+# @st.cache_data(ttl=60)
 def fetch_pcr_data():
 
-    return {
+    smart = initialize_angel()
 
-        "NIFTY": 0.94,
+    data = smart.putCallRatio()
 
-        "BANKNIFTY": 0.99
+    print("PCR DATA =")
+    print(data)
+
+    pcr_map = {
+        "NIFTY": 0.95,
+        "BANKNIFTY": 0.95
     }
 
+    for row in data["data"]:
+
+        symbol = row["tradingSymbol"]
+
+        if (
+            symbol.startswith("NIFTY")
+            and "NXT" not in symbol
+            and symbol.endswith("FUT")
+        ):
+
+            pcr_map["NIFTY"] = float(
+                row["pcr"]
+            )
+
+        elif (
+            symbol.startswith("BANKNIFTY")
+            and symbol.endswith("FUT")
+        ):
+
+            pcr_map["BANKNIFTY"] = float(
+                row["pcr"]
+            )
+
+    print("FINAL PCR MAP =", pcr_map)
+
+    return pcr_map
 # =====================================================
 # SIGNAL ENGINE
 # =====================================================
