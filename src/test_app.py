@@ -582,13 +582,37 @@ def generate_trade_decision(
             "Bullish Trend"
         )
 
-    if state["pcr"] > 0.9:
+    if state["pcr"] > 1.10:
 
-        score += 20
+        score += 25
 
         reasons.append(
-            "PCR Supportive"
-        )
+        "Strong Bullish PCR"
+    )
+
+    elif state["pcr"] > 1.00:
+
+        score += 15
+
+        reasons.append(
+            "Bullish PCR"
+    )
+
+    elif state["pcr"] < 0.80:
+
+        score -= 25
+
+        reasons.append(
+            "Strong Bearish PCR"
+    )
+
+    elif state["pcr"] < 0.90:
+
+        score -= 15
+
+        reasons.append(
+         "Bearish PCR"
+    )
 
     if state["oi_structure"] in [
         "LONG BUILDUP",
@@ -609,13 +633,21 @@ def generate_trade_decision(
             "Positive Delta"
         )
 
-    if state["call_volume"] < state["put_volume"]:
+    if state["put_volume"] > state["call_volume"]:
+
+        score -= 10
+
+        reasons.append(
+            "Put Side Dominance"
+    )
+
+    else:
 
         score += 10
 
         reasons.append(
-            "Put Side Dominance"
-        )
+            "Call Side Dominance"
+    )
 
     confidence = min(
         score,
@@ -832,9 +864,6 @@ def build_live_state(
             "atm_strike":
                  option_chain["atm_strike"],
 
-            "atm_strike":
-                option_chain["atm_strike"],
-
             "atm_ce":
                 option_chain["atm_ce"],
 
@@ -858,9 +887,36 @@ def build_live_state(
 
             "put_volume":
                     option_chain["put_volume"],
-
+            
             "max_pain":
                     option_chain["max_pain"],
+
+            "entry_price":
+                    opt_price,
+
+            "stop_loss":
+                    round(
+                        opt_price * 0.90,
+                                    2
+                        ),
+
+            "target":
+                    round(
+                        opt_price * 1.20,
+                                    2
+                        ),
+
+            "risk_reward":
+                    round(
+                        (
+                            (opt_price * 1.20) - opt_price
+                        )
+                        /
+                        (
+                            opt_price - (opt_price * 0.90)
+                        ),
+                        2
+                ),
 
             "opt_price":
                 opt_price,
@@ -1080,7 +1136,19 @@ best_asset_name = best_asset[0]
 
 best_asset_data = best_asset[1]
 
-# =====================================================
+if best_asset_data["trade_confidence"] < 40:
+
+    best_asset_name = "NO TRADE AVAILABLE"
+
+    best_asset_data["opt_symbol"] = (
+        "NO TRADE AVAILABLE"
+    )
+
+    best_asset_data["trade_confidence"] = 0
+
+    best_asset_data["trade_reasons"] = [
+        "No setup meets minimum confidence threshold"
+    ]# =====================================================
 # TRADE OF THE MOMENT
 # =====================================================
 

@@ -452,14 +452,42 @@ def render_trade_card(
 
         <br><br>
 
-        Confidence:
+       Confidence:
+            <b>
+                {state['trade_confidence']}%
+            </b>
+
+        <br><br>
+
+        Entry:
+            <b>
+                ₹{state['entry_price']:.2f}
+            </b>
+
+            <br>
+
+        Stop Loss:
+            <b>
+                ₹{state['stop_loss']:.2f}
+            </b>
+
+            <br>
+
+        Target:
+            <b>
+                ₹{state['target']:.2f}
+            </b>
+
+            <br>
+
+        Risk/Reward:
         <b>
-            {state['trade_confidence']}%
+            {state['risk_reward']} : 1
         </b>
 
         <br><br>
 
-        {reasons_html}
+            {reasons_html}
 
     </div>
     """
