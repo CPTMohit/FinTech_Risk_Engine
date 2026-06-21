@@ -1,0 +1,2 @@
+timestamp,asset,signal,entry,stop_loss,target,confidence,quantity,capital_required,max_loss,expected_profit,status,pnl
+2026-06-21 14:44:49.927028,BANK NIFTY INDEX,NO TRADE,461.486,415.34,553.78,0,35,16152.01,1615.2,3230.4,OPEN,0

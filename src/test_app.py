@@ -5,11 +5,13 @@ Author: Mohit Singh
 """
 
 import os
+import pandas as pd
 import sys
 from unittest import result
 import SmartApi
 import streamlit as st
 from datetime import datetime
+from plyer import notification
 
 from SmartApi import SmartConnect
 import pyotp
@@ -21,6 +23,53 @@ API_KEY = "3xK955MH"
 CLIENT_CODE = "AACI729341"
 PIN = "0912"
 TOTP_SECRET = "ZG4AT5YV6GPJQNPPVHLESN5JZI"
+
+# =========================
+# V16 POSITION SIZING CONFIG
+# =========================
+
+TOTAL_CAPITAL = 100000      # Account Capital
+RISK_PER_TRADE = 0.02       # 2% Risk Per Trade
+LOT_SIZE_NIFTY = 75
+LOT_SIZE_BANKNIFTY = 35
+
+NSE_HOLIDAYS_2026 = [
+    "2026-01-26",
+    "2026-03-04",
+    "2026-03-27",
+    "2026-04-02",
+    "2026-04-14",
+    "2026-05-01",
+    "2026-08-15",
+    "2026-10-02",
+    "2026-11-12",
+    "2026-12-25"
+]
+
+JOURNAL_FILE = "trade_journal.csv"
+
+if not os.path.exists(JOURNAL_FILE):
+
+    pd.DataFrame(
+        columns=[
+            "timestamp",
+            "asset",
+            "signal",
+            "entry",
+            "stop_loss",
+            "target",
+            "confidence",
+            "quantity",
+            "capital_required",
+            "max_loss",
+            "expected_profit",
+            "status",
+            "pnl"
+        ]
+    ).to_csv(
+        JOURNAL_FILE,
+        index=False
+    )
 
 # =====================================================
 # PATH SETUP
@@ -140,6 +189,41 @@ def initialize_angel():
 
     return None
 
+
+# =====================================================
+# DESKTOP ALERT ENGINE
+# =====================================================
+
+def send_desktop_alert(
+    title,
+    message
+):
+
+    notification.notify(
+        title=title,
+        message=message,
+        timeout=10
+    )
+    alert_id = (
+        f"{best_asset_name}_"
+        f"{best_asset_data['action']}"
+)
+
+    if (
+        best_asset_data["trade_confidence"] >= 75
+        and LAST_ALERT != alert_id
+    ):
+
+        send_desktop_alert(
+        f"{best_asset_data['action']} ALERT",
+        (
+            f"{best_asset_name}\n"
+            f"Confidence: {best_asset_data['trade_confidence']}%\n"
+            f"Entry: ₹{best_asset_data['entry_price']:.2f}"
+        )
+    )
+
+    LAST_ALERT = alert_id
 # =====================================================
 # LIVE MARKET DATA
 # =====================================================
@@ -319,6 +403,125 @@ def calculate_signal(
         probability
     )
 
+from datetime import datetime
+
+def get_market_status():
+    
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+
+    if today in NSE_HOLIDAYS_2026:
+
+        return False, "MARKET CLOSED - NSE HOLIDAY"
+    
+    weekday = now.weekday()
+    current_time = now.strftime("%H:%M")
+
+    if weekday >= 5:
+        return False, "MARKET CLOSED - WEEKEND"
+
+    if current_time < "09:15":
+        return False, "PRE-MARKET"
+
+    if current_time > "15:30":
+        return False, "MARKET CLOSED"
+
+    return True, "MARKET OPEN"
+
+# =====================================================
+# POSITION SIZING ENGINE (V16)
+# =====================================================
+
+def calculate_position_size(
+    premium,
+    confidence,
+    risk_reward,
+    symbol
+):
+
+    if premium <= 0:
+        return 0, 0
+
+    base_risk = (
+        TOTAL_CAPITAL
+        * RISK_PER_TRADE
+        
+    )
+    LAST_ALERT = None
+
+    confidence_multiplier = (
+        confidence / 100
+    )
+
+    rr_multiplier = min(
+        2.0,
+        max(
+            0.5,
+            risk_reward
+        )
+    )
+
+    adjusted_risk = (
+        base_risk
+        * confidence_multiplier
+        * rr_multiplier
+    )
+
+    lot_size = (
+        LOT_SIZE_NIFTY
+        if symbol == "NIFTY"
+        else LOT_SIZE_BANKNIFTY
+    )
+
+    cost_per_lot = (
+        premium
+        * lot_size
+    )
+
+    lots = max(
+        1,
+        int(
+            adjusted_risk
+            / cost_per_lot
+        )
+    )
+
+    quantity = (
+        lots
+        * lot_size
+    )
+
+    return lots, quantity
+
+def log_trade(state, asset_name):
+
+    row = pd.DataFrame(
+        [
+            {
+                "timestamp": datetime.now(),
+                "asset": asset_name,
+                "signal": state["action"],
+                "entry": state["entry_price"],
+                "stop_loss": state["stop_loss"],
+                "target": state["target"],
+                "confidence": state["trade_confidence"],
+                "quantity": state["recommended_qty"],
+                "capital_required": state["capital_required"],
+                "max_loss": state["max_loss"],
+                "expected_profit": state["expected_profit"],
+                "status": "OPEN",
+                "pnl": 0
+            }
+        ]
+    )
+
+    row.to_csv(
+        JOURNAL_FILE,
+        mode="a",
+        header=False,
+        index=False
+    )
+
 # =====================================================
 # BUILD LIVE STATE
 # =====================================================
@@ -355,6 +558,40 @@ def calculate_trend(
         return "BEARISH"
 
     return "SIDEWAYS"
+
+def classify_market_regime(
+    change,
+    pcr,
+    oi_bias
+):
+
+    if abs(change) >= 1.0:
+
+            return "VOLATILE MARKET"
+
+    elif (
+        abs(change) >= 0.50
+        and oi_bias == "BULLISH"
+    ):
+
+        if oi_bias == "BULLISH":
+
+            return "BULLISH TREND"
+
+        else:
+
+            return "BEARISH TREND"
+
+    elif (
+        pcr > 0.90
+        and pcr < 1.10
+    ):
+
+        return "RANGE BOUND MARKET"
+
+    else:
+
+        return "BREAKOUT MARKET"
 
 def fetch_greeks(
     spot,
@@ -406,14 +643,7 @@ def discover_atm_contracts(
     symbol,
     atm_strike
 ):
-    if symbol != "NIFTY":
-
-     return {
-        "ce_symbol": "",
-        "ce_token": "",
-        "pe_symbol": "",
-        "pe_token": ""
-    }
+    search_term = symbol
 
     search_term = "NIFTY"
 
@@ -423,11 +653,19 @@ def discover_atm_contracts(
 )
     result = smart.searchScrip(
     "NFO",
-    search_term
+    symbol
 )
-    print("TOTAL RESULTS =", len(result["data"]))
 
-    print("RAW SEARCH RESULT")
+    print("SEARCH TERM =", symbol)
+    print("SEARCH RESULT STATUS =", result.get("status"))
+
+    if result.get("data"):
+       
+        for row in result["data"][:20]:
+            print(row["tradingsymbol"])
+            print("TOTAL RESULTS =", len(result["data"]))
+
+            print("RAW SEARCH RESULT")
 
 
     ce_symbol = ""
@@ -456,6 +694,8 @@ def discover_atm_contracts(
     for row in result["data"]:
 
         ts = row["tradingsymbol"]
+        if symbol == "BANKNIFTY":
+            print(ts)
 
         if ts.startswith("NIFTYNXT"):
             continue
@@ -580,6 +820,21 @@ def fetch_option_chain(
 
         print("QUOTE ERROR =", e)
 
+    recommended_premium = max(
+    ce_ltp,
+    pe_ltp
+)
+    
+    confidence = 70
+    risk_reward = 2.0
+
+    lots, quantity = calculate_position_size(
+        recommended_premium,
+        confidence,
+        risk_reward,
+        symbol
+)
+
     return {
         "atm_strike": atm_strike,
         "atm_ce": contracts["ce_symbol"],
@@ -590,7 +845,15 @@ def fetch_option_chain(
         "put_oi": put_oi,
         "call_volume": call_volume,
         "put_volume": put_volume,
-        "max_pain": atm_strike
+        "max_pain": atm_strike,
+        "support": atm_strike - 100,
+        "resistance": atm_strike + 100,
+        "oi_bias":
+        "BULLISH"
+        if put_oi > call_oi
+        else "BEARISH",
+        "recommended_lots": lots,
+        "recommended_qty": quantity,
     }
 
 def classify_oi_buildup(change_pct, oi):
@@ -703,10 +966,9 @@ def generate_trade_decision(
         reasons
     )
 
-def build_live_state(
-    market_data
-):
+def build_live_state(market_data):
 
+    print("BUILD LIVE STATE STARTED")
     pcr_data = (
         fetch_pcr_data()
     )
@@ -717,10 +979,12 @@ def build_live_state(
         "NIFTY",
         "BANKNIFTY"
     ]:
-
+        print("PROCESSING =", symbol)
         spot = (
             market_data[symbol]["spot"]
         )
+        print("PROCESSING =", symbol)
+        print("SPOT =", spot)
 
         change = (
             market_data[symbol]["change"]
@@ -733,6 +997,7 @@ def build_live_state(
         pcr = (
             pcr_data[symbol]
         )
+        print("PCR =", pcr)
 
         (
             action,
@@ -752,6 +1017,7 @@ def build_live_state(
             pcr,
             oi_structure
         )
+        
 
 
 
@@ -828,15 +1094,37 @@ def build_live_state(
             theta,
             vega
         ) = fetch_greeks(
-                spot,
-                strike,
-                option_type
+            spot,
+            strike,
+            option_type
         )
 
-        option_chain = fetch_option_chain(
+        try:
+            print("PROCESSING =", symbol)
+            option_chain = fetch_option_chain(
                 spot,
                 symbol
+            )
+
+            market_regime = classify_market_regime(
+            change,
+            pcr,
+            option_chain["oi_bias"]
         )
+
+            print("OPTION CHAIN OK =", symbol)
+            if symbol == "NIFTY":
+              print("NIFTY OPTION CHAIN =", option_chain)
+
+        except Exception as e:
+
+            print(
+                "OPTION CHAIN ERROR:",
+                symbol,
+                e
+            )
+
+            continue
 
         confidence, reasons = (
             generate_trade_decision(
@@ -848,15 +1136,60 @@ def build_live_state(
                     "call_volume": option_chain["call_volume"],
                     "put_volume": option_chain["put_volume"]
                 }
+            
             )
+        )
+        print("DECISION OK =", symbol)
+        capital_required = round(
+            option_chain["recommended_qty"]
+            * opt_price,
+            2
+        )
+
+        max_loss = round(
+            (
+                opt_price
+                - (opt_price * 0.90)
             )
+            * option_chain["recommended_qty"],
+            2
+        )
+        risk_percent = round(
+             (max_loss / 100000) * 100,
+            2
+            )
+        expected_profit = round(
+    (
+        (opt_price * 1.20)
+        - opt_price
+    )
+    * option_chain["recommended_qty"],
+    2
+)   
 
         states[
-                asset_name
-            ] = {
+            asset_name
+        ] = {
 
             "trade_confidence":
                 confidence,
+           
+            "recommended_lots":
+                option_chain["recommended_lots"],
+
+            "recommended_qty":
+                option_chain["recommended_qty"],
+
+            "capital_required":
+                    capital_required,
+
+            "max_loss":
+                    max_loss,
+            "risk_percent":
+                risk_percent,
+            
+            "expected_profit":
+                    expected_profit,
 
             "trade_reasons":
                 reasons,
@@ -892,6 +1225,9 @@ def build_live_state(
                   oi_structure,
             "trend":
                 trend,
+            
+            "market_regime":
+                market_regime,
 
             "delta":
                 delta,
@@ -918,22 +1254,31 @@ def build_live_state(
                 option_chain["ce_ltp"],
 
             "pe_ltp":
-            option_chain["pe_ltp"],
+                option_chain["pe_ltp"],
 
             "call_oi":
-                    option_chain["call_oi"],
+                option_chain["call_oi"],
 
             "put_oi":
                     option_chain["put_oi"],
 
             "call_volume":
-                    option_chain["call_volume"],
+                option_chain["call_volume"],
 
             "put_volume":
-                    option_chain["put_volume"],
+                option_chain["put_volume"],
             
             "max_pain":
-                    option_chain["max_pain"],
+                option_chain["max_pain"],
+
+            "support":
+                option_chain["support"],
+
+            "resistance":
+                option_chain["resistance"],
+
+            "oi_bias":
+                option_chain["oi_bias"],
 
             "entry_price":
                     opt_price,
@@ -974,10 +1319,10 @@ def build_live_state(
                 opt_price * 0.95,
 
             "mock_size":
-                lot_size
-                
+                lot_size,
+           
         }
-
+    print("FINAL STATES =", list(states.keys()))
     return states
 
 # =====================================================
@@ -994,6 +1339,18 @@ st.caption(
     f"| SmartAPI Connected "
     f"| Refresh: 5 Seconds"
 )
+is_open, market_status = get_market_status()
+
+st.info(
+    f"📈 {market_status}"
+)
+if not is_open:
+
+    st.warning(
+        f"🚫 {market_status}"
+    )
+
+    #st.stop()
 
 market_data = (
     fetch_live_market_data()
@@ -1008,7 +1365,11 @@ global_fund_states = (
         market_data
     )
 )
+is_open, market_status = get_market_status()
 
+st.info(
+    f"📈 {market_status}"
+)
 # =====================================================
 # TOP CARDS
 # =====================================================
@@ -1017,14 +1378,22 @@ col1, col2 = st.columns(2)
 
 with col1:
 
-   st.html(
-    render_asset_card(
-        "NIFTY 50 INDEX",
-        global_fund_states[
-           "NIFTY 50 INDEX"
-    ] 
+
+    if "NIFTY 50 INDEX" in global_fund_states:
+
+        st.html(
+        render_asset_card(
+            "NIFTY 50 INDEX",
+            global_fund_states[
+                "NIFTY 50 INDEX"
+            ]
+        )
     )
-)
+
+    else:
+
+        st.error("NIFTY STATE MISSING")
+    
 
 with col2:
 
@@ -1182,24 +1551,32 @@ best_asset_data = best_asset[1]
 
 if best_asset_data["trade_confidence"] < 40:
 
-    best_asset_name = "NO TRADE AVAILABLE"
+    best_asset_name = best_asset[0]
 
-    best_asset_data["opt_symbol"] = (
-        "NO TRADE AVAILABLE"
-    )
+    best_asset_data["action"] = "NO TRADE"  
 
     best_asset_data["trade_confidence"] = 0
 
     best_asset_data["trade_reasons"] = [
         "No setup meets minimum confidence threshold"
-    ]# =====================================================
+    ]
+
+# =====================================================
 # TRADE OF THE MOMENT
 # =====================================================
 
 st.subheader(
     "🎯 Trade Recommendation Engine"
 )
+if (
+    best_asset_data["trade_confidence"] > 40
+    and best_asset_data["action"] != "NO TRADE"
+):
 
+    log_trade(
+        best_asset_data,
+        best_asset_name
+    )
 st.html(
     render_trade_card(
         best_asset_name,
@@ -1287,5 +1664,19 @@ if highest_prob_asset:
         </div>
         """,
     )
+    st.markdown("---")
+
+st.subheader(
+    "📒 Trade Journal"
+)
+
+journal_df = pd.read_csv(
+    JOURNAL_FILE
+)
+
+st.dataframe(
+    journal_df.tail(10),
+    use_container_width=True
+)
 
     

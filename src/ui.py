@@ -95,6 +95,13 @@ def render_asset_card(asset_title, state):
             <b>{state['trend']}</b>
         </div>
 
+        <br>
+
+        Market Regime:
+        <b>
+            {state['market_regime']}
+        </b>
+
         <div>
             PCR:
             <b>{state['pcr']:.2f}</b>
@@ -420,6 +427,21 @@ def render_option_chain_panel(states):
             <b>Max Pain:</b>
             {state['max_pain']}
 
+            <br><br>
+
+            <b>Support:</b>
+            {state['support']}
+
+            <br>
+
+            <b>Resistance:</b>
+            {state['resistance']}
+
+            <br>
+
+            <b>OI Bias:</b>
+            {state['oi_bias']}
+
         </div>
         """
 
@@ -446,19 +468,23 @@ def render_trade_card(
             🎯 TRADE OF THE MOMENT
         </h3>
 
-        <b>
-            {state['opt_symbol']}
-        </b>
+       <b>
+    {asset_name}
+</b>
 
-        <br><br>
+<br>
 
+Signal:
+<b>
+    {state['action']}
+</b>
+
+        <br>
        Confidence:
             <b>
                 {state['trade_confidence']}%
             </b>
-
-        <br><br>
-
+            <br>
         Entry:
             <b>
                 ₹{state['entry_price']:.2f}
@@ -484,10 +510,49 @@ def render_trade_card(
         <b>
             {state['risk_reward']} : 1
         </b>
+        <br>
 
-        <br><br>
+<b>
 
-            {reasons_html}
+</b>
+       Position Size:
+<b>
+<br>
+
+    {state['recommended_lots']} Lots
+</b>
+<br>
+Quantity:
+<b>
+    {state['recommended_qty']}
+</b>
+<br>
+Capital Required:
+<b>
+    ₹{state['capital_required']:,.2f}
+</b>
+
+<br>
+
+Maximum Loss:
+<b>
+    ₹{state['max_loss']:,.2f}
+</b>
+<br>
+Risk Per Trade:
+<b>
+    {state['risk_percent']}%
+</b>
+
+<br>                
+
+Expected Profit:
+<b>
+    ₹{state['expected_profit']:,.2f}
+</b>
+
+<br><br>
+ {reasons_html}
 
     </div>
     """
