@@ -6,6 +6,7 @@ Author: Mohit Singh
 
 import os
 import sys
+from unittest import result
 import SmartApi
 import streamlit as st
 from datetime import datetime
@@ -414,19 +415,20 @@ def discover_atm_contracts(
         "pe_token": ""
     }
 
-    search_term = (
-        f"NIFTY24DEC29{atm_strike}"
-    )
+    search_term = "NIFTY"
 
     print(
     "SEARCH TERM =",
     search_term
 )
-
     result = smart.searchScrip(
-        "NFO",
-        search_term
-    )
+    "NFO",
+    search_term
+)
+    print("TOTAL RESULTS =", len(result["data"]))
+
+    print("RAW SEARCH RESULT")
+
 
     ce_symbol = ""
     ce_token = ""
@@ -447,31 +449,57 @@ def discover_atm_contracts(
                 "pe_token": ""
             }
 
+    strike_text = str(atm_strike)
+
+    print("SYMBOL =", symbol)
+
     for row in result["data"]:
 
-            ts = row["tradingsymbol"]
+        ts = row["tradingsymbol"]
 
-            if ts.endswith("CE"):
+        if ts.startswith("NIFTYNXT"):
+            continue
 
-                ce_symbol = ts
-                ce_token = row["symboltoken"]
+        if "NIFTY" not in ts:
+            continue
 
-            elif ts.endswith("PE"):
+        
+        if strike_text not in ts:
+            continue
 
-                pe_symbol = ts
-                pe_token = row["symboltoken"]
+        if ts.endswith("CE"):
+
+            ce_symbol = ts
+            ce_token = row["symboltoken"]
+
+        elif ts.endswith("PE"):
+
+            pe_symbol = ts
+            pe_token = row["symboltoken"]
+
+        if ce_symbol and pe_symbol:
+            break
+
+    print("CE =", ce_symbol, ce_token)
+    print("PE =", pe_symbol, pe_token)
 
     return {
-            "ce_symbol": ce_symbol,
-            "ce_token": ce_token,
-            "pe_symbol": pe_symbol,
-            "pe_token": pe_token
-        }
+        "ce_symbol": ce_symbol,
+        "ce_token": ce_token,
+        "pe_symbol": pe_symbol,
+        "pe_token": pe_token
+    }
+
 
 def fetch_option_chain(
     spot,
     symbol
 ):
+    print("=" * 50)
+    print("FETCH OPTION CHAIN")
+    print("SYMBOL =", symbol)
+    print("SPOT =", spot)
+    print("=" * 50)
 
     if symbol == "NIFTY":
         import math
@@ -491,6 +519,7 @@ def fetch_option_chain(
         "ATM =",
         atm_strike
     )
+ 
     smart = initialize_angel()
 
     contracts = discover_atm_contracts(
@@ -498,56 +527,71 @@ def fetch_option_chain(
     symbol,
     atm_strike
 )
-
-    print(contracts)
-
     ce_ltp = 0
     pe_ltp = 0
 
-    try:
+    call_oi = 0
+    put_oi = 0
 
-        if contracts["ce_symbol"]:
-
-            ce_data = smart.ltpData(
-            "NFO",
-            contracts["ce_symbol"],
-            contracts["ce_token"]
-        )
-
-            ce_ltp = ce_data["data"]["ltp"]
-
-    except Exception:
-        ce_ltp = 0
+    call_volume = 0
+    put_volume = 0
 
     try:
 
-        if contracts["pe_symbol"]:
+        tokens = []
 
-            pe_data = smart.ltpData(
-            "NFO",
-            contracts["pe_symbol"],
-            contracts["pe_token"]
-        )
+        if contracts["ce_token"]:
+            tokens.append(
+                contracts["ce_token"]
+            )
 
-            pe_ltp = pe_data["data"]["ltp"]
+        if contracts["pe_token"]:
+            tokens.append(
+                contracts["pe_token"]
+            )
 
-    except Exception:
-        pe_ltp = 0
+        if tokens:
+
+            quote = smart.getMarketData(
+                "FULL",
+                {
+                    "NFO": tokens
+                }
+            )
 
 
-    print(contracts)
+            for row in quote["data"]["fetched"]:
+
+                token = row["symbolToken"]
+
+                if token == contracts["ce_token"]:
+
+                    ce_ltp = row["ltp"]
+                    call_oi = row["opnInterest"]
+                    call_volume = row["tradeVolume"]
+
+                elif token == contracts["pe_token"]:
+
+                    pe_ltp = row["ltp"]
+                    put_oi = row["opnInterest"]
+                    put_volume = row["tradeVolume"]
+
+    except Exception as e:
+
+        print("QUOTE ERROR =", e)
+
     return {
-    "atm_strike": atm_strike,
-    "atm_ce": contracts["ce_symbol"],
-    "atm_pe": contracts["pe_symbol"],
-    "ce_ltp": ce_ltp,
-    "pe_ltp": pe_ltp,
-    "call_oi": 2500000,
-    "put_oi": 3200000,
-    "call_volume": 450000,
-    "put_volume": 510000,
-    "max_pain": atm_strike
-}
+        "atm_strike": atm_strike,
+        "atm_ce": contracts["ce_symbol"],
+        "atm_pe": contracts["pe_symbol"],
+        "ce_ltp": ce_ltp,
+        "pe_ltp": pe_ltp,
+        "call_oi": call_oi,
+        "put_oi": put_oi,
+        "call_volume": call_volume,
+        "put_volume": put_volume,
+        "max_pain": atm_strike
+    }
 
 def classify_oi_buildup(change_pct, oi):
 
