@@ -12,10 +12,39 @@ import SmartApi
 import streamlit as st
 from datetime import datetime
 from plyer import notification
-
 from SmartApi import SmartConnect
 import pyotp
-
+from modules.market_status import (
+    NSE_HOLIDAYS_2026,
+    get_market_status
+)
+from modules.alert_engine import (
+    send_desktop_alert,
+    LAST_ALERT
+)
+from modules.journal_engine import (
+    JOURNAL_FILE
+)
+from modules.journal_engine import (
+    JOURNAL_FILE,
+    log_trade
+)
+from modules.market_regime import (
+    classify_market_regime
+)
+from modules.position_sizing import (
+    TOTAL_CAPITAL,
+    RISK_PER_TRADE,
+    LOT_SIZE_NIFTY,
+    LOT_SIZE_BANKNIFTY,
+    calculate_position_size
+)
+from modules.signal_engine import (
+    calculate_signal,
+    calculate_trend,
+    classify_oi_buildup,
+    generate_trade_decision
+)
 # =====================================================
 # ANGEL ONE CONFIG
 # =====================================================
@@ -24,29 +53,11 @@ CLIENT_CODE = "AACI729341"
 PIN = "0912"
 TOTP_SECRET = "ZG4AT5YV6GPJQNPPVHLESN5JZI"
 
-# =========================
-# V16 POSITION SIZING CONFIG
-# =========================
 
-TOTAL_CAPITAL = 100000      # Account Capital
-RISK_PER_TRADE = 0.02       # 2% Risk Per Trade
-LOT_SIZE_NIFTY = 75
-LOT_SIZE_BANKNIFTY = 35
 
-NSE_HOLIDAYS_2026 = [
-    "2026-01-26",
-    "2026-03-04",
-    "2026-03-27",
-    "2026-04-02",
-    "2026-04-14",
-    "2026-05-01",
-    "2026-08-15",
-    "2026-10-02",
-    "2026-11-12",
-    "2026-12-25"
-]
 
-JOURNAL_FILE = "trade_journal.csv"
+
+
 
 if not os.path.exists(JOURNAL_FILE):
 
@@ -194,34 +205,24 @@ def initialize_angel():
 # DESKTOP ALERT ENGINE
 # =====================================================
 
-def send_desktop_alert(
-    title,
-    message
-):
-
-    notification.notify(
-        title=title,
-        message=message,
-        timeout=10
-    )
     alert_id = (
-        f"{best_asset_name}_"
-        f"{best_asset_data['action']}"
-)
+            f"{best_asset_name}_"
+            f"{best_asset_data['action']}"
+    )
 
     if (
-        best_asset_data["trade_confidence"] >= 75
-        and LAST_ALERT != alert_id
-    ):
+            best_asset_data["trade_confidence"] >= 75
+            and LAST_ALERT != alert_id
+        ):
 
-        send_desktop_alert(
-        f"{best_asset_data['action']} ALERT",
-        (
-            f"{best_asset_name}\n"
-            f"Confidence: {best_asset_data['trade_confidence']}%\n"
-            f"Entry: ₹{best_asset_data['entry_price']:.2f}"
+            send_desktop_alert(
+            f"{best_asset_data['action']} ALERT",
+            (
+                f"{best_asset_name}\n"
+                f"Confidence: {best_asset_data['trade_confidence']}%\n"
+                f"Entry: ₹{best_asset_data['entry_price']:.2f}"
+            )
         )
-    )
 
     LAST_ALERT = alert_id
 # =====================================================
@@ -354,244 +355,8 @@ def fetch_pcr_data():
     print("FINAL PCR MAP =", pcr_map)
 
     return pcr_map
-# =====================================================
-# SIGNAL ENGINE
-# =====================================================
 
-def calculate_signal(
-    change,
-    pcr
-):
-
-    score = 0
-
-    if change > 0.30:
-        score += 20
-
-    elif change < -0.30:
-        score -= 20
-
-    if pcr < 0.95:
-        score += 20
-
-    elif pcr > 1.05:
-        score -= 20
-
-    if score >= 30:
-
-        action = "BUY CALL"
-
-    elif score <= -30:
-
-        action = "BUY PUT"
-
-    else:
-
-        action = "NO TRADE"
-
-    probability = min(
-        99,
-        max(
-            55,
-            50 + abs(score)
-        )
-    )
-
-    return (
-        action,
-        score,
-        probability
-    )
-
-from datetime import datetime
-
-def get_market_status():
-    
-    now = datetime.now()
-    today = now.strftime("%Y-%m-%d")
-
-    if today in NSE_HOLIDAYS_2026:
-
-        return False, "MARKET CLOSED - NSE HOLIDAY"
-    
-    weekday = now.weekday()
-    current_time = now.strftime("%H:%M")
-
-    if weekday >= 5:
-        return False, "MARKET CLOSED - WEEKEND"
-
-    if current_time < "09:15":
-        return False, "PRE-MARKET"
-
-    if current_time > "15:30":
-        return False, "MARKET CLOSED"
-
-    return True, "MARKET OPEN"
-
-# =====================================================
-# POSITION SIZING ENGINE (V16)
-# =====================================================
-
-def calculate_position_size(
-    premium,
-    confidence,
-    risk_reward,
-    symbol
-):
-
-    if premium <= 0:
-        return 0, 0
-
-    base_risk = (
-        TOTAL_CAPITAL
-        * RISK_PER_TRADE
         
-    )
-    LAST_ALERT = None
-
-    confidence_multiplier = (
-        confidence / 100
-    )
-
-    rr_multiplier = min(
-        2.0,
-        max(
-            0.5,
-            risk_reward
-        )
-    )
-
-    adjusted_risk = (
-        base_risk
-        * confidence_multiplier
-        * rr_multiplier
-    )
-
-    lot_size = (
-        LOT_SIZE_NIFTY
-        if symbol == "NIFTY"
-        else LOT_SIZE_BANKNIFTY
-    )
-
-    cost_per_lot = (
-        premium
-        * lot_size
-    )
-
-    lots = max(
-        1,
-        int(
-            adjusted_risk
-            / cost_per_lot
-        )
-    )
-
-    quantity = (
-        lots
-        * lot_size
-    )
-
-    return lots, quantity
-
-def log_trade(state, asset_name):
-
-    row = pd.DataFrame(
-        [
-            {
-                "timestamp": datetime.now(),
-                "asset": asset_name,
-                "signal": state["action"],
-                "entry": state["entry_price"],
-                "stop_loss": state["stop_loss"],
-                "target": state["target"],
-                "confidence": state["trade_confidence"],
-                "quantity": state["recommended_qty"],
-                "capital_required": state["capital_required"],
-                "max_loss": state["max_loss"],
-                "expected_profit": state["expected_profit"],
-                "status": "OPEN",
-                "pnl": 0
-            }
-        ]
-    )
-
-    row.to_csv(
-        JOURNAL_FILE,
-        mode="a",
-        header=False,
-        index=False
-    )
-
-# =====================================================
-# BUILD LIVE STATE
-# =====================================================
-def calculate_trend(
-    change,
-    pcr,
-    oi_structure
-):
-
-    if (
-        change > 0.30
-        and pcr > 0.90
-        and oi_structure == "LONG BUILDUP"
-    ):
-        return "STRONG BULLISH"
-
-    elif (
-        change > 0
-        and pcr > 0.80
-    ):
-        return "BULLISH"
-
-    elif (
-        change < -0.30
-        and pcr < 0.80
-        and oi_structure == "SHORT BUILDUP"
-    ):
-        return "STRONG BEARISH"
-
-    elif (
-        change < 0
-        and pcr < 0.90
-    ):
-        return "BEARISH"
-
-    return "SIDEWAYS"
-
-def classify_market_regime(
-    change,
-    pcr,
-    oi_bias
-):
-
-    if abs(change) >= 1.0:
-
-            return "VOLATILE MARKET"
-
-    elif (
-        abs(change) >= 0.50
-        and oi_bias == "BULLISH"
-    ):
-
-        if oi_bias == "BULLISH":
-
-            return "BULLISH TREND"
-
-        else:
-
-            return "BEARISH TREND"
-
-    elif (
-        pcr > 0.90
-        and pcr < 1.10
-    ):
-
-        return "RANGE BOUND MARKET"
-
-    else:
-
-        return "BREAKOUT MARKET"
 
 def fetch_greeks(
     spot,
@@ -856,115 +621,7 @@ def fetch_option_chain(
         "recommended_qty": quantity,
     }
 
-def classify_oi_buildup(change_pct, oi):
 
-    if change_pct > 0.30 and oi > 100000000:
-        return "LONG BUILDUP"
-
-    elif change_pct < -0.30 and oi > 100000000:
-        return "SHORT BUILDUP"
-
-    elif change_pct > 0 and oi < 100000000:
-        return "SHORT COVERING"
-
-    else:
-        return "LONG UNWINDING" 
-
-def generate_trade_decision(
-    state
-):
-
-    score = 0
-
-    reasons = []
-
-    if state["trend"] in [
-        "BULLISH",
-        "STRONG BULLISH"
-    ]:
-
-        score += 25
-
-        reasons.append(
-            "Bullish Trend"
-        )
-
-    if state["pcr"] > 1.10:
-
-        score += 25
-
-        reasons.append(
-        "Strong Bullish PCR"
-    )
-
-    elif state["pcr"] > 1.00:
-
-        score += 15
-
-        reasons.append(
-            "Bullish PCR"
-    )
-
-    elif state["pcr"] < 0.80:
-
-        score -= 25
-
-        reasons.append(
-            "Strong Bearish PCR"
-    )
-
-    elif state["pcr"] < 0.90:
-
-        score -= 15
-
-        reasons.append(
-         "Bearish PCR"
-    )
-
-    if state["oi_structure"] in [
-        "LONG BUILDUP",
-        "SHORT COVERING"
-    ]:
-
-        score += 20
-
-        reasons.append(
-            "Positive OI Structure"
-        )
-
-    if state["delta"] > 0:
-
-        score += 15
-
-        reasons.append(
-            "Positive Delta"
-        )
-
-    if state["put_volume"] > state["call_volume"]:
-
-        score -= 10
-
-        reasons.append(
-            "Put Side Dominance"
-    )
-
-    else:
-
-        score += 10
-
-        reasons.append(
-            "Call Side Dominance"
-    )
-
-    confidence = min(
-        score,
-        95
-    )
-
-    return (
-        confidence,
-        reasons
-    )
 
 def build_live_state(market_data):
 
