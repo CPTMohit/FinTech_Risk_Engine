@@ -9,7 +9,7 @@ A real-time quantitative trading and options analytics system driven by modular 
 The pipeline ingests streaming market data, processes multi-factor options metrics, and delivers dynamic trading states via an interactive dashboard interface.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/CPTMohit/FinTech_Risk_Engine/main/architecture_overview.png" alt="FinTech Risk Engine Architecture Diagram" width="100%">
+  <img src="https://raw.githubusercontent.com/CPTMohit/FinTech_Risk_Engine/master/architecture_overview.png" alt="FinTech Risk Engine Architecture Diagram" width="100%">
 </p>
 
 ---
