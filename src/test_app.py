@@ -45,6 +45,14 @@ from modules.signal_engine import (
     classify_oi_buildup,
     generate_trade_decision
 )
+from modules.websocket_engine import (
+    start_websocket,
+    stop_websocket,
+    get_latest_tick
+)
+from modules.live_market import (
+    fetch_live_market_data
+)
 # =====================================================
 # ANGEL ONE CONFIG
 # =====================================================
@@ -194,12 +202,20 @@ def initialize_angel():
         totp
     )
 
-    if session["status"]:
+    if not session["status"]:
+        return None
 
-        return smart
+    jwt_token = session["data"]["jwtToken"]
 
-    return None
+    feed_token = smart.getfeedToken()
 
+    return {
+        "smart_api": smart,
+        "jwt_token": jwt_token,
+        "feed_token": feed_token,
+        "client_code": CLIENT_CODE,
+        "api_key": API_KEY
+    }
 
 # =====================================================
 # DESKTOP ALERT ENGINE
@@ -225,90 +241,6 @@ def initialize_angel():
         )
 
     LAST_ALERT = alert_id
-# =====================================================
-# LIVE MARKET DATA
-# =====================================================
-def fetch_live_market_data():
-
-    smart = initialize_angel()
-
-    if smart is None:
-
-        return None
-
-    try:
-
-        market = smart.getMarketData(
-            "FULL",
-            {
-                "NSE": [
-                    "26000",
-                    "26009"
-                ]
-            }
-        )
-
-        fetched = market["data"]["fetched"]
-
-        nifty = fetched[0]
-        bank = fetched[1]
-
-        return {
-
-            "NIFTY": {
-
-                "spot":
-                    float(
-                        nifty["ltp"]
-                    ),
-
-                "close":
-                    float(
-                        nifty["close"]
-                    ),
-
-                "change":
-                    float(
-                        nifty["percentChange"]
-                    ),
-
-                "oi":
-                    int(
-                        nifty["opnInterest"]
-                    )
-            },
-
-            "BANKNIFTY": {
-
-                "spot":
-                    float(
-                        bank["ltp"]
-                    ),
-
-                "close":
-                    float(
-                        bank["close"]
-                    ),
-
-                "change":
-                    float(
-                        bank["percentChange"]
-                    ),
-
-                "oi":
-                    int(
-                        bank["opnInterest"]
-                    )
-            }
-        }
-
-    except Exception as e:
-
-        st.error(
-            f"Market Data Error: {e}"
-        )
-
-        return None
 
 # =====================================================
 # PCR DATA
@@ -317,12 +249,16 @@ def fetch_live_market_data():
 # @st.cache_data(ttl=60)
 def fetch_pcr_data():
 
-    smart = initialize_angel()
+    angel_session = initialize_angel()
+
+    if angel_session is None:
+        return None
+
+    smart = angel_session["smart_api"]
 
     data = smart.putCallRatio()
 
-    print("PCR DATA =")
-    print(data)
+   
 
     pcr_map = {
         "NIFTY": 0.95,
@@ -352,7 +288,7 @@ def fetch_pcr_data():
                 row["pcr"]
             )
 
-    print("FINAL PCR MAP =", pcr_map)
+    
 
     return pcr_map
 
@@ -421,30 +357,25 @@ def discover_atm_contracts(
     symbol
 )
 
-    print("SEARCH TERM =", symbol)
-    print("SEARCH RESULT STATUS =", result.get("status"))
 
     if result.get("data"):
        
         for row in result["data"][:20]:
-            print(row["tradingsymbol"])
-            print("TOTAL RESULTS =", len(result["data"]))
-
-            print("RAW SEARCH RESULT")
+            
 
 
-    ce_symbol = ""
-    ce_token = ""
+            ce_symbol = ""
+            ce_token = ""
 
-    pe_symbol = ""
-    pe_token = ""
+            pe_symbol = ""
+            pe_token = ""
 
     if (
             result is None
             or not result.get("status")
             or result.get("data") is None
         ):
-            print("SEARCH RESULT =", result)
+            print("SEARCH FAILED")
             return {
                 "ce_symbol": "",
                 "ce_token": "",
@@ -454,15 +385,15 @@ def discover_atm_contracts(
 
     strike_text = str(atm_strike)
 
-    print("SYMBOL =", symbol)
+    
 
     for row in result["data"]:
 
         ts = row["tradingsymbol"]
         if symbol == "BANKNIFTY":
-            print(ts)
+    
 
-        if ts.startswith("NIFTYNXT"):
+         if ts.startswith("NIFTYNXT"):
             continue
 
         if "NIFTY" not in ts:
@@ -485,8 +416,7 @@ def discover_atm_contracts(
         if ce_symbol and pe_symbol:
             break
 
-    print("CE =", ce_symbol, ce_token)
-    print("PE =", pe_symbol, pe_token)
+    
 
     return {
         "ce_symbol": ce_symbol,
@@ -500,11 +430,7 @@ def fetch_option_chain(
     spot,
     symbol
 ):
-    print("=" * 50)
-    print("FETCH OPTION CHAIN")
-    print("SYMBOL =", symbol)
-    print("SPOT =", spot)
-    print("=" * 50)
+    
 
     if symbol == "NIFTY":
         import math
@@ -518,19 +444,17 @@ def fetch_option_chain(
             * 100
         )
 
-    print(
-        "SPOT =",
-        spot,
-        "ATM =",
-        atm_strike
-    )
- 
-    smart = initialize_angel()
+    angel_session = initialize_angel()
+
+    if angel_session is None:
+        return None
+
+    smart = angel_session["smart_api"]
 
     contracts = discover_atm_contracts(
-    smart,
-    symbol,
-    atm_strike
+        smart,
+        symbol,
+        atm_strike
 )
     ce_ltp = 0
     pe_ltp = 0
@@ -625,7 +549,6 @@ def fetch_option_chain(
 
 def build_live_state(market_data):
 
-    print("BUILD LIVE STATE STARTED")
     pcr_data = (
         fetch_pcr_data()
     )
@@ -636,12 +559,9 @@ def build_live_state(market_data):
         "NIFTY",
         "BANKNIFTY"
     ]:
-        print("PROCESSING =", symbol)
         spot = (
             market_data[symbol]["spot"]
         )
-        print("PROCESSING =", symbol)
-        print("SPOT =", spot)
 
         change = (
             market_data[symbol]["change"]
@@ -654,7 +574,7 @@ def build_live_state(market_data):
         pcr = (
             pcr_data[symbol]
         )
-        print("PCR =", pcr)
+
 
         (
             action,
@@ -757,7 +677,7 @@ def build_live_state(market_data):
         )
 
         try:
-            print("PROCESSING =", symbol)
+    
             option_chain = fetch_option_chain(
                 spot,
                 symbol
@@ -769,9 +689,8 @@ def build_live_state(market_data):
             option_chain["oi_bias"]
         )
 
-            print("OPTION CHAIN OK =", symbol)
-            if symbol == "NIFTY":
-              print("NIFTY OPTION CHAIN =", option_chain)
+          
+                 
 
         except Exception as e:
 
@@ -979,7 +898,7 @@ def build_live_state(market_data):
                 lot_size,
            
         }
-    print("FINAL STATES =", list(states.keys()))
+    print(states["NIFTY 50 INDEX"])
     return states
 
 # =====================================================
@@ -1008,9 +927,30 @@ if not is_open:
     )
 
     #st.stop()
+print("REACHED WEBSOCKET START")
+if "websocket_started" not in st.session_state:
+    print("START_WEBSOCKET FUNCTION CALLED")
 
-market_data = (
-    fetch_live_market_data()
+    angel_session = initialize_angel()
+
+    start_websocket(
+        angel_session["jwt_token"],
+        angel_session["api_key"],
+        angel_session["client_code"],
+        angel_session["feed_token"]
+    )
+
+    st.session_state["websocket_started"] = True
+    from modules.websocket_engine import LIVE_STATE
+
+
+
+
+import time
+
+
+market_data = fetch_live_market_data(
+    initialize_angel
 )
 
 if market_data is None:
@@ -1054,15 +994,20 @@ with col1:
 
 with col2:
 
-    st.html(
-         render_asset_card(
-            "BANK NIFTY INDEX",
-            global_fund_states[
-                "BANK NIFTY INDEX"
-            ]
-        )
-    )
 
+
+    if "BANK NIFTY INDEX" in global_fund_states:
+
+        st.html(
+            render_asset_card(
+                "BANK NIFTY INDEX",
+                global_fund_states["BANK NIFTY INDEX"]
+            )
+        )
+
+    else:
+
+        st.error("BANK NIFTY INDEX not found")
 
 # =====================================================
 # STRENGTH METER
@@ -1335,5 +1280,15 @@ st.dataframe(
     journal_df.tail(10),
     use_container_width=True
 )
+st.write(
+    get_latest_tick(
+        "NIFTY"
+    )
+)
 
+st.write(
+    get_latest_tick(
+        "BANKNIFTY"
+    )
+)
     
