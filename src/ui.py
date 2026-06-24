@@ -141,18 +141,71 @@ def render_asset_card(asset_title, state):
     """
 
 
+def render_asset_card_live(asset_title, spot, change, oi):
+
+    change_color = (
+        THEME_CONFIG["bullish"]
+        if change >= 0
+        else THEME_CONFIG["bearish"]
+    )
+
+    sign = "+" if change >= 0 else ""
+
+    return f"""
+    <div class="global-ticker-card" style="margin-bottom:12px;">
+
+        <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+        ">
+
+            <span style="
+                color:{THEME_CONFIG['text_muted']};
+                font-weight:bold;
+            ">
+                {asset_title}
+            </span>
+
+            <span style="
+                color:{change_color};
+                font-weight:bold;
+            ">
+                {sign}{change:.2f}%
+            </span>
+
+        </div>
+
+        <div style="
+            font-size:32px;
+            font-weight:bold;
+            margin-top:8px;
+            margin-bottom:8px;
+        ">
+            ₹{spot:,.2f}
+        </div>
+
+        <div>
+            OI:
+            <b>{oi:,}</b>
+        </div>
+
+    </div>
+    """
 # =====================================================
 # STRENGTH METER
 # =====================================================
 
 def render_strength_meter(title, states):
-    
+
     nifty_prob = (
-        states["NIFTY 50 INDEX"]["probability"]
+        states.get("NIFTY 50 INDEX", {})
+        .get("probability", 0)
     )
 
     bank_prob = (
-        states["BANK NIFTY INDEX"]["probability"]
+        states.get("BANK NIFTY INDEX", {})
+        .get("probability", 0)
     )
 
     return f"""
@@ -202,13 +255,11 @@ def render_strength_meter(title, states):
     </div>
     """
 
-
 # =====================================================
 # SIGNAL TABLE
 # =====================================================
 
 def render_signals_table(states):
-
     rows = []
 
     highest_prob_val = -1
@@ -447,19 +498,30 @@ def render_option_chain_panel(states):
 
     return html
 
-def render_trade_card(
-    asset_name,
-    state
-):
+def render_trade_card(asset_name, state):
+
+    trade_reasons = state.get(
+        "trade_reasons",
+        ["No trade reasons available"]
+    )
 
     reasons_html = "<br>".join(
-        [
-            f"✓ {r}"
-            for r in state[
-                "trade_reasons"
-            ]
-        ]
+        [f"✓ {r}" for r in trade_reasons]
     )
+
+    action = state.get("action", "NO TRADE")
+    trade_confidence = state.get("trade_confidence", 0)
+    entry_price = state.get("entry_price", 0)
+    stop_loss = state.get("stop_loss", 0)
+    target = state.get("target", 0)
+    risk_reward = state.get("risk_reward", 0)
+
+    recommended_lots = state.get("recommended_lots", 0)
+    recommended_qty = state.get("recommended_qty", 0)
+    capital_required = state.get("capital_required", 0)
+    max_loss = state.get("max_loss", 0)
+    risk_percent = state.get("risk_percent", 0)
+    expected_profit = state.get("expected_profit", 0)
 
     return f"""
     <div class="global-ticker-card">
@@ -468,91 +530,58 @@ def render_trade_card(
             🎯 TRADE OF THE MOMENT
         </h3>
 
-       <b>
-    {asset_name}
-</b>
-
-<br>
-
-Signal:
-<b>
-    {state['action']}
-</b>
-
+        <b>{asset_name}</b>
         <br>
-       Confidence:
-            <b>
-                {state['trade_confidence']}%
-            </b>
-            <br>
-        Entry:
-            <b>
-                ₹{state['entry_price']:.2f}
-            </b>
 
-            <br>
+        Signal:
+        <b>{action}</b>
+        <br>
+
+        Confidence:
+        <b>{trade_confidence}%</b>
+        <br>
+
+        Entry:
+        <b>₹{entry_price:.2f}</b>
+        <br>
 
         Stop Loss:
-            <b>
-                ₹{state['stop_loss']:.2f}
-            </b>
-
-            <br>
-
-        Target:
-            <b>
-                ₹{state['target']:.2f}
-            </b>
-
-            <br>
-
-        Risk/Reward:
-        <b>
-            {state['risk_reward']} : 1
-        </b>
+        <b>₹{stop_loss:.2f}</b>
         <br>
 
-<b>
+        Target:
+        <b>₹{target:.2f}</b>
+        <br>
 
-</b>
-       Position Size:
-<b>
-<br>
+        Risk/Reward:
+        <b>{risk_reward} : 1</b>
+        <br><br>
 
-    {state['recommended_lots']} Lots
-</b>
-<br>
-Quantity:
-<b>
-    {state['recommended_qty']}
-</b>
-<br>
-Capital Required:
-<b>
-    ₹{state['capital_required']:,.2f}
-</b>
+        Position Size:
+        <b>{recommended_lots} Lots</b>
+        <br>
 
-<br>
+        Quantity:
+        <b>{recommended_qty}</b>
+        <br>
 
-Maximum Loss:
-<b>
-    ₹{state['max_loss']:,.2f}
-</b>
-<br>
-Risk Per Trade:
-<b>
-    {state['risk_percent']}%
-</b>
+        Capital Required:
+        <b>₹{capital_required:,.2f}</b>
+        <br>
 
-<br>                
+        Maximum Loss:
+        <b>₹{max_loss:,.2f}</b>
+        <br>
 
-Expected Profit:
-<b>
-    ₹{state['expected_profit']:,.2f}
-</b>
+        Risk Per Trade:
+        <b>{risk_percent}%</b>
+        <br>
 
-<br><br>
- {reasons_html}
+        Expected Profit:
+        <b>₹{expected_profit:,.2f}</b>
+        <br><br>
+
+        {reasons_html}
 
     </div>
     """

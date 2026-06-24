@@ -8,6 +8,7 @@ from modules.websocket_engine import (
 def fetch_live_market_data(
     initialize_angel
 ):
+    
 
     angel_session = initialize_angel()
 
@@ -51,6 +52,7 @@ def fetch_live_market_data(
             else float(
                 nifty["ltp"]
             )
+            
         )
 
         bank_spot = (
@@ -60,6 +62,7 @@ def fetch_live_market_data(
                 bank["ltp"]
             )
         )
+       
 
         return {
 
@@ -105,10 +108,4 @@ def fetch_live_market_data(
         )
 
         return None
-    st.write(
-    market_data["NIFTY"]["spot"]
-)
-
-    st.write(
-    market_data["BANKNIFTY"]["spot"]
-)
+   

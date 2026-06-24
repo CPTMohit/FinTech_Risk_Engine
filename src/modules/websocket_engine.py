@@ -19,8 +19,11 @@ from datetime import datetime
 
 def on_data(wsapp, message):
     
+    
+    
 
     global LIVE_STATE
+    
 
     token = message.get("token")
 
@@ -78,7 +81,7 @@ def on_open(wsapp):
             token_list
         )
 
-        print("SUBSCRIBED TO NIFTY/BANKNIFTY")
+        
 
     except Exception as e:
 
@@ -90,7 +93,6 @@ def on_error(wsapp, error):
 
     print("WEBSOCKET ERROR")
     print(error)
-
 
 def on_close(wsapp):
 

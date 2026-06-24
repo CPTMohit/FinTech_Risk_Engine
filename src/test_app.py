@@ -14,6 +14,10 @@ from datetime import datetime
 from plyer import notification
 from SmartApi import SmartConnect
 import pyotp
+import time
+from modules.websocket_engine import LIVE_STATE
+
+
 from modules.market_status import (
     NSE_HOLIDAYS_2026,
     get_market_status
@@ -53,6 +57,7 @@ from modules.websocket_engine import (
 from modules.live_market import (
     fetch_live_market_data
 )
+
 # =====================================================
 # ANGEL ONE CONFIG
 # =====================================================
@@ -119,6 +124,7 @@ from src.ui import (
     render_position_table,
     render_option_chain_panel,
     render_trade_card,
+    render_asset_card_live,
     THEME_CONFIG
 )
 
@@ -131,10 +137,9 @@ st.set_page_config(
     page_icon="⚡",
     layout="wide"
 )
-
 # =====================================================
 # GLOBAL CSS
-# =====================================================
+# ====================  =================================
 
 st.markdown(
     f"""
@@ -246,52 +251,67 @@ def initialize_angel():
 # PCR DATA
 # =====================================================
 
-# @st.cache_data(ttl=60)
 def fetch_pcr_data():
 
     angel_session = initialize_angel()
 
     if angel_session is None:
-        return None
+        return {
+            "NIFTY": 1.0,
+            "BANKNIFTY": 1.0
+        }
 
     smart = angel_session["smart_api"]
 
-    data = smart.putCallRatio()
+    if smart is None:
+        return {
+            "NIFTY": 1.0,
+            "BANKNIFTY": 1.0
+        }
 
-   
-
-    pcr_map = {
-        "NIFTY": 0.95,
-        "BANKNIFTY": 0.95
-    }
-
-    for row in data["data"]:
-
-        symbol = row["tradingSymbol"]
+    try:
+        data = smart.putCallRatio()
 
         if (
-            symbol.startswith("NIFTY")
-            and "NXT" not in symbol
-            and symbol.endswith("FUT")
+            data is None
+            or not data.get("status")
+            or data.get("data") is None
         ):
+            return {
+                "NIFTY": 1.0,
+                "BANKNIFTY": 1.0
+            }
 
-            pcr_map["NIFTY"] = float(
-                row["pcr"]
+        pcr_map = {
+            "NIFTY": 1.0,
+            "BANKNIFTY": 1.0
+        }
+
+        for row in data["data"]:
+
+            name = str(
+                row.get("name", "")
+            ).upper()
+
+            pcr_value = float(
+                row.get("pcr", 1.0)
             )
 
-        elif (
-            symbol.startswith("BANKNIFTY")
-            and symbol.endswith("FUT")
-        ):
+            if "NIFTY" in name and "BANK" not in name:
+                pcr_map["NIFTY"] = pcr_value
 
-            pcr_map["BANKNIFTY"] = float(
-                row["pcr"]
-            )
+            elif "BANKNIFTY" in name or "BANK NIFTY" in name:
+                pcr_map["BANKNIFTY"] = pcr_value
 
-    
+        return pcr_map
 
-    return pcr_map
+    except Exception as e:
+        print("PCR FETCH ERROR =", e)
 
+        return {
+            "NIFTY": 1.0,
+            "BANKNIFTY": 1.0
+        }
         
 
 def fetch_greeks(
@@ -677,31 +697,44 @@ def build_live_state(market_data):
         )
 
         try:
-    
+
             option_chain = fetch_option_chain(
                 spot,
                 symbol
             )
 
             market_regime = classify_market_regime(
-            change,
-            pcr,
-            option_chain["oi_bias"]
-        )
-
-          
-                 
+                change,
+                pcr,
+                option_chain["oi_bias"]
+            )
 
         except Exception as e:
 
-            print(
-                "OPTION CHAIN ERROR:",
-                symbol,
-                e
+            st.error(
+                f"{symbol} OPTION CHAIN ERROR: {e}"
             )
 
-            continue
+            option_chain = {
+                "recommended_lots": 0,
+                "recommended_qty": 0,
+                "atm_strike": strike,
+                "atm_ce": "",
+                "atm_pe": "",
+                "ce_ltp": 0,
+                "pe_ltp": 0,
+                "call_oi": 0,
+                "put_oi": 0,
+                "call_volume": 0,
+                "put_volume": 0,
+                "max_pain": strike,
+                "support": strike,
+                "resistance": strike,
+                "oi_bias": "NEUTRAL"
+            }
 
+            market_regime = "DATA UNAVAILABLE"
+        
         confidence, reasons = (
             generate_trade_decision(
                 {
@@ -898,10 +931,63 @@ def build_live_state(market_data):
                 lot_size,
            
         }
-    print(states["NIFTY 50 INDEX"])
+
     return states
 
-# =====================================================
+@st.fragment(run_every="300ms")
+def render_live_top_cards():
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        nifty_state = global_fund_states.get(
+            "NIFTY 50 INDEX",
+            {}
+        ).copy()
+
+        nifty_tick = LIVE_STATE.get(
+            "NIFTY",
+            {}
+        )
+
+        if nifty_tick.get("ltp") is not None:
+            nifty_state["spot"] = nifty_tick["ltp"]
+
+        if nifty_state:
+            st.html(
+                render_asset_card(
+                    "NIFTY 50 INDEX",
+                    nifty_state
+                )
+            )
+        else:
+            st.error("NIFTY STATE MISSING")
+
+    with col2:
+
+        bank_state = global_fund_states.get(
+            "BANK NIFTY INDEX",
+            {}
+        ).copy()
+
+        bank_tick = LIVE_STATE.get(
+            "BANKNIFTY",
+            {}
+        )
+
+        if bank_tick.get("ltp") is not None:
+            bank_state["spot"] = bank_tick["ltp"]
+
+        if bank_state:
+            st.html(
+                render_asset_card(
+                    "BANK NIFTY INDEX",
+                    bank_state
+                )
+            )
+        else:
+            st.error("BANK NIFTY INDEX not found")# =====================================================
 # APP START
 # =====================================================
 
@@ -913,23 +999,29 @@ st.caption(
     f"System Time: "
     f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
     f"| SmartAPI Connected "
-    f"| Refresh: 5 Seconds"
+    f"| State Refresh: 30 Seconds"
 )
+
+# =====================================================
+# MARKET STATUS
+# =====================================================
+
 is_open, market_status = get_market_status()
 
 st.info(
     f"📈 {market_status}"
 )
-if not is_open:
 
+if not is_open:
     st.warning(
         f"🚫 {market_status}"
     )
 
-    #st.stop()
-print("REACHED WEBSOCKET START")
+# =====================================================
+# START WEBSOCKET ONCE
+# =====================================================
+
 if "websocket_started" not in st.session_state:
-    print("START_WEBSOCKET FUNCTION CALLED")
 
     angel_session = initialize_angel()
 
@@ -941,76 +1033,43 @@ if "websocket_started" not in st.session_state:
     )
 
     st.session_state["websocket_started"] = True
-    from modules.websocket_engine import LIVE_STATE
 
-
-
-
-import time
-
+# =====================================================
+# FETCH LIVE MARKET DATA
+# =====================================================
 
 market_data = fetch_live_market_data(
     initialize_angel
 )
 
 if market_data is None:
-
     st.stop()
 
-global_fund_states = (
-    build_live_state(
+# =====================================================
+# SESSION STATE FOR HEAVY DASHBOARD STATE
+# =====================================================
+
+if "last_state_refresh" not in st.session_state:
+    st.session_state["last_state_refresh"] = 0
+
+if "global_fund_states" not in st.session_state:
+    st.session_state["global_fund_states"] = {}
+
+current_time = time.time()
+
+if current_time - st.session_state["last_state_refresh"] >= 30:
+    st.session_state["global_fund_states"] = build_live_state(
         market_data
     )
-)
-is_open, market_status = get_market_status()
+    st.session_state["last_state_refresh"] = current_time
 
-st.info(
-    f"📈 {market_status}"
-)
-# =====================================================
-# TOP CARDS
-# =====================================================
-
-col1, col2 = st.columns(2)
-
-with col1:
-
-
-    if "NIFTY 50 INDEX" in global_fund_states:
-
-        st.html(
-        render_asset_card(
-            "NIFTY 50 INDEX",
-            global_fund_states[
-                "NIFTY 50 INDEX"
-            ]
-        )
-    )
-
-    else:
-
-        st.error("NIFTY STATE MISSING")
-    
-
-with col2:
-
-
-
-    if "BANK NIFTY INDEX" in global_fund_states:
-
-        st.html(
-            render_asset_card(
-                "BANK NIFTY INDEX",
-                global_fund_states["BANK NIFTY INDEX"]
-            )
-        )
-
-    else:
-
-        st.error("BANK NIFTY INDEX not found")
+global_fund_states = st.session_state["global_fund_states"]
 
 # =====================================================
-# STRENGTH METER
+# LIVE TOP CARDS
+# =====================================================
+
+render_live_top_cards()# STRENGTH METER
 # =====================================================
 
 st.subheader(
@@ -1142,52 +1201,54 @@ st.html(
     """,
 )
 
-best_asset = max(
-    global_fund_states.items(),
-    key=lambda x: x[1]["trade_confidence"]
-)
+if global_fund_states:
 
-best_asset_name = best_asset[0]
-
-best_asset_data = best_asset[1]
-
-if best_asset_data["trade_confidence"] < 40:
+    best_asset = max(
+        global_fund_states.items(),
+        key=lambda x: x[1].get("trade_confidence", 0)
+    )
 
     best_asset_name = best_asset[0]
+    best_asset_data = best_asset[1].copy()
 
-    best_asset_data["action"] = "NO TRADE"  
+else:
+    best_asset_name = None
+    best_asset_data = None
 
-    best_asset_data["trade_confidence"] = 0
-
-    best_asset_data["trade_reasons"] = [
-        "No setup meets minimum confidence threshold"
-    ]
 
 # =====================================================
 # TRADE OF THE MOMENT
 # =====================================================
 
-st.subheader(
-    "🎯 Trade Recommendation Engine"
-)
-if (
-    best_asset_data["trade_confidence"] > 40
-    and best_asset_data["action"] != "NO TRADE"
-):
+st.subheader("🎯 Trade Recommendation Engine")
 
-    log_trade(
-        best_asset_data,
-        best_asset_name
+if best_asset_data is not None:
+
+    if best_asset_data.get("trade_confidence", 0) < 40:
+        best_asset_data["action"] = "NO TRADE"
+        best_asset_data["trade_confidence"] = 0
+        best_asset_data["trade_reasons"] = [
+            "No setup meets minimum confidence threshold"
+        ]
+
+    if (
+        best_asset_data.get("trade_confidence", 0) > 40
+        and best_asset_data.get("action") != "NO TRADE"
+    ):
+        log_trade(
+            best_asset_data,
+            best_asset_name
+        )
+
+    st.html(
+        render_trade_card(
+            best_asset_name,
+            best_asset_data
+        )
     )
-st.html(
-    render_trade_card(
-        best_asset_name,
-        best_asset_data
-    ),
-)
 
-
-
+else:
+    st.warning("No live trade setup available right now.")
 # =====================================================
 # OPTION CHAIN INTELLIGENCE
 # =====================================================
@@ -1196,11 +1257,14 @@ st.subheader(
     "🎯 Option Chain Intelligence"
 )
 
-st.html(
-    render_option_chain_panel(
-        global_fund_states
-    ),
+option_chain_html = render_option_chain_panel(
+    global_fund_states
 )
+
+if option_chain_html:
+    st.html(option_chain_html)
+else:
+    st.warning("Option chain data not available right now.")
 
 # =====================================================
 # PRIMARY SIGNAL
