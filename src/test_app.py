@@ -17,7 +17,13 @@ import pyotp
 import time
 from modules.websocket_engine import LIVE_STATE
 
+from modules.decision_engine.engine import (
+    decision_engine
+)
 
+from modules.decision_engine.models import (
+    MarketFeatures
+)
 from modules.market_status import (
     NSE_HOLIDAYS_2026,
     get_market_status
@@ -315,50 +321,93 @@ def fetch_pcr_data():
         
 
 def fetch_greeks(
-    spot,
-    strike,
-    option_type
+    spot: float,
+    strike: float
 ):
+    """
+    =====================================================
+    Greeks Engine
 
+    Returns Greeks for BOTH
+    CE and PE.
+
+    This is currently a mathematical simulator.
+
+    Later this will be replaced by
+    Black-Scholes / Live Greeks.
+    =====================================================
+    """
 
     moneyness = abs(
         spot - strike
     ) / spot
 
-    delta = (
-        0.70
-        if option_type == "CE"
-        else -0.70
+    gamma = round(
+
+        max(
+            0.02 - (
+                moneyness * 0.01
+            ),
+            0.001
+        ),
+
+        4
+
     )
 
-    gamma = (
-        round(
-            0.02 - (moneyness * 0.01),
-            4
-        )
+    theta = round(
+
+        -4.5 -
+        (
+            moneyness * 10
+        ),
+
+        2
+
     )
 
-    theta = (
-        round(
-            -4.5 - (moneyness * 10),
-            2
-        )
+    vega = round(
+
+        8 +
+        (
+            moneyness * 20
+        ),
+
+        2
+
     )
 
-    vega = (
-        round(
-            8 + (moneyness * 20),
-            2
-        )
-    )
+    ce = {
 
-    return (
-        delta,
-        gamma,
-        theta,
-        vega
-    )
+        "delta": 0.70,
 
+        "gamma": gamma,
+
+        "theta": theta,
+
+        "vega": vega
+
+    }
+
+    pe = {
+
+        "delta": -0.70,
+
+        "gamma": gamma,
+
+        "theta": theta,
+
+        "vega": vega
+
+    }
+
+    return {
+
+        "CE": ce,
+
+        "PE": pe
+
+    }
 def discover_atm_contracts(
     smart,
     symbol,
@@ -569,9 +618,7 @@ def fetch_option_chain(
 
 def build_live_state(market_data):
 
-    pcr_data = (
-        fetch_pcr_data()
-    )
+    pcr_data = fetch_pcr_data()
 
     states = {}
 
@@ -579,372 +626,550 @@ def build_live_state(market_data):
         "NIFTY",
         "BANKNIFTY"
     ]:
-        spot = (
-            market_data[symbol]["spot"]
-        )
 
-        change = (
-            market_data[symbol]["change"]
-        )
+        # =====================================================
+        # LIVE MARKET DATA
+        # =====================================================
 
-        oi = (
-            market_data[symbol]["oi"]
-        )
+        spot = market_data[symbol]["spot"]
 
-        pcr = (
-            pcr_data[symbol]
-        )
+        change = market_data[symbol]["change"]
 
+        oi = market_data[symbol]["oi"]
 
-        (
-            action,
-            score,
-            probability
-        ) = calculate_signal(
-            change,
-            pcr
-        )
+        pcr = pcr_data[symbol]
+
+        # =====================================================
+        # MARKET STRUCTURE
+        # =====================================================
+
         oi_structure = classify_oi_buildup(
+
             change,
+
             oi
+
         )
 
         trend = calculate_trend(
+
             change,
+
             pcr,
+
             oi_structure
+
         )
-        
 
-
-
-        if action == "BUY CALL":
-
-            direction = 1
-
-        elif action == "BUY PUT":
-
-            direction = -1
-
-        else:
-
-            direction = 0
+        # =====================================================
+        # ASSET CONFIG
+        # =====================================================
 
         if symbol == "NIFTY":
 
-            strike = (
-                int(
-                    round(
-                        spot / 50
-                    )
-                ) * 50
-            )
+            strike = int(
 
-            asset_name = (
-                "NIFTY 50 INDEX"
-            )
+                round(
+                    spot / 50
+                )
+
+            ) * 50
+
+            asset_name = "NIFTY 50 INDEX"
 
             lot_size = 50
 
-            premium_factor = (
-                0.006
-            )
+            premium_factor = 0.006
 
         else:
 
-            strike = (
-                int(
-                    round(
-                        spot / 100
-                    )
-                ) * 100
-            )
+            strike = int(
 
-            asset_name = (
-                "BANK NIFTY INDEX"
-            )
+                round(
+                    spot / 100
+                )
+
+            ) * 100
+
+            asset_name = "BANK NIFTY INDEX"
 
             lot_size = 15
 
-            premium_factor = (
-                0.008
-            )
+            premium_factor = 0.008
 
-        opt_price = (
-            spot *
-            premium_factor
+        # =====================================================
+        # OPTION PREMIUM
+        # =====================================================
+
+        opt_price = round(
+
+            spot * premium_factor,
+
+            2
+
         )
 
-        option_type = (
-            "CE"
-            if direction > 0
-            else (
-                "PE"
-                if direction < 0
-                else "NT"
-            )
-        )
-
-        (
-            delta,
-            gamma,
-            theta,
-            vega
-        ) = fetch_greeks(
-            spot,
-            strike,
-            option_type
-        )
+        # =====================================================
+        # OPTION CHAIN
+        # =====================================================
 
         try:
 
             option_chain = fetch_option_chain(
+
                 spot,
+
                 symbol
+
             )
 
             market_regime = classify_market_regime(
+
                 change,
+
                 pcr,
+
                 option_chain["oi_bias"]
+
             )
 
         except Exception as e:
 
             st.error(
-                f"{symbol} OPTION CHAIN ERROR: {e}"
+                f"{symbol} OPTION CHAIN ERROR : {e}"
             )
 
             option_chain = {
+
                 "recommended_lots": 0,
+
                 "recommended_qty": 0,
+
                 "atm_strike": strike,
+
                 "atm_ce": "",
+
                 "atm_pe": "",
+
                 "ce_ltp": 0,
+
                 "pe_ltp": 0,
+
                 "call_oi": 0,
+
                 "put_oi": 0,
+
                 "call_volume": 0,
+
                 "put_volume": 0,
+
                 "max_pain": strike,
+
                 "support": strike,
+
                 "resistance": strike,
+
                 "oi_bias": "NEUTRAL"
+
             }
 
-            market_regime = "DATA UNAVAILABLE"
-        
-        confidence, reasons = (
-            generate_trade_decision(
-                {
-                    "trend": trend,
-                    "pcr": pcr,
-                    "oi_structure": oi_structure,
-                    "delta": delta,
-                    "call_volume": option_chain["call_volume"],
-                    "put_volume": option_chain["put_volume"]
-                }
-            
-            )
+            market_regime = "UNKNOWN"
+
+        # =====================================================
+        # GREEKS ENGINE
+        # =====================================================
+
+        greeks = fetch_greeks(
+
+            spot,
+
+            strike
+
         )
-        print("DECISION OK =", symbol)
+
+        # =====================================================
+        # AI FEATURE OBJECT
+        # =====================================================
+
+        features = MarketFeatures(
+
+    trend=trend,
+
+    market_regime=market_regime,
+
+    oi_structure=oi_structure,
+
+    spot=spot,
+
+    option_premium=opt_price,
+
+    support=option_chain["support"],
+
+    resistance=option_chain["resistance"],
+
+    pcr=pcr,
+
+    # Temporary: use CE Greeks for AI scoring
+    delta=greeks["CE"]["delta"],
+
+    gamma=greeks["CE"]["gamma"],
+
+    theta=greeks["CE"]["theta"],
+
+    vega=greeks["CE"]["vega"],
+
+    call_volume=option_chain["call_volume"],
+
+    put_volume=option_chain["put_volume"]
+
+)
+        # =====================================================
+        # AI DECISION ENGINE
+        # =====================================================
+
+        decision = decision_engine.evaluate(
+
+            features
+
+        )
+
+        print(
+
+            f"[AI] {symbol}",
+
+            decision.action,
+
+            decision.confidence
+
+        )
+                # =====================================================
+        # OPTION SIDE SELECTED BY AI
+        # =====================================================
+
+        action = decision.action
+
+        if action == "BUY CALL":
+
+            direction = 1
+
+            option_type = "CE"
+
+            selected_greeks = greeks["CE"]
+
+        elif action == "BUY PUT":
+
+            direction = -1
+
+            option_type = "PE"
+
+            selected_greeks = greeks["PE"]
+
+        else:
+
+            direction = 0
+
+            option_type = "NT"
+
+            selected_greeks = greeks["CE"]
+
+        # =====================================================
+        # POSITION SIZING
+        # =====================================================
+
+        confidence = decision.confidence
+
+        risk_reward = decision.trade_plan.risk_reward
+
+        lots, quantity = calculate_position_size(
+
+            opt_price,
+
+            confidence,
+
+            risk_reward,
+
+            symbol
+
+        )
+
+        # =====================================================
+        # CAPITAL CALCULATIONS
+        # =====================================================
+
         capital_required = round(
-            option_chain["recommended_qty"]
-            * opt_price,
+
+            quantity *
+
+            opt_price,
+
             2
+
         )
 
         max_loss = round(
+
             (
+
                 opt_price
-                - (opt_price * 0.90)
+
+                -
+
+                decision.trade_plan.stop_loss
+
             )
-            * option_chain["recommended_qty"],
+
+            *
+
+            quantity,
+
             2
+
         )
+
         risk_percent = round(
-             (max_loss / 100000) * 100,
-            2
+
+            (
+
+                max_loss
+
+                /
+
+                TOTAL_CAPITAL
+
             )
+
+            * 100,
+
+            2
+
+        )
+
         expected_profit = round(
-    (
-        (opt_price * 1.20)
-        - opt_price
-    )
-    * option_chain["recommended_qty"],
-    2
-)   
 
-        states[
-            asset_name
-        ] = {
+            (
 
-            "trade_confidence":
-                confidence,
-           
-            "recommended_lots":
-                option_chain["recommended_lots"],
+                decision.trade_plan.target
 
-            "recommended_qty":
-                option_chain["recommended_qty"],
+                -
 
-            "capital_required":
-                    capital_required,
+                decision.trade_plan.entry
 
-            "max_loss":
-                    max_loss,
-            "risk_percent":
-                risk_percent,
-            
-            "expected_profit":
-                    expected_profit,
+            )
 
-            "trade_reasons":
-                reasons,
+            *
 
-            "spot":
-                spot,
+            quantity,
 
-            "change_7d":
-                change,
+            2
 
-            "dir_factor":
-                direction,
+        )
 
-            "currency":
-                "₹",
+        # =====================================================
+        # BUILD STATE OBJECT
+        # =====================================================
 
-            "action":
-                action,
+        state = {}
 
-            "probability":
-                probability,
+        state["trade_confidence"] = decision.confidence
 
-            "signal_score":
-                score,
+        state["trade_reasons"] = decision.reasons
 
-            "pcr":
-                pcr,
+        state["action"] = decision.action
 
-           "oi":
-                 oi,
+        state["probability"] = decision.confidence
 
-            "oi_structure":
-                  oi_structure,
-            "trend":
-                trend,
-            
-            "market_regime":
-                market_regime,
+        state["signal_score"] = decision.score
 
-            "delta":
-                delta,
+        state["spot"] = spot
 
-            "gamma":
-                gamma,
+        state["change_7d"] = change
 
-            "theta":
-                theta,
+        state["dir_factor"] = direction
 
-            "vega":
-                vega,
+        state["currency"] = "₹"
 
-            "atm_strike":
-                 option_chain["atm_strike"],
+        state["entry_price"] = decision.trade_plan.entry
 
-            "atm_ce":
-                option_chain["atm_ce"],
+        state["stop_loss"] = decision.trade_plan.stop_loss
 
-            "atm_pe":
-                option_chain["atm_pe"],
+        state["target"] = decision.trade_plan.target
 
-            "ce_ltp":
-                option_chain["ce_ltp"],
+        state["risk_reward"] = decision.trade_plan.risk_reward
 
-            "pe_ltp":
-                option_chain["pe_ltp"],
+        state["recommended_lots"] = lots
 
-            "call_oi":
-                option_chain["call_oi"],
+        state["recommended_qty"] = quantity
 
-            "put_oi":
-                    option_chain["put_oi"],
+        state["capital_required"] = capital_required
 
-            "call_volume":
-                option_chain["call_volume"],
+        state["max_loss"] = max_loss
 
-            "put_volume":
-                option_chain["put_volume"],
-            
-            "max_pain":
-                option_chain["max_pain"],
+        state["risk_percent"] = risk_percent
 
-            "support":
-                option_chain["support"],
+        state["expected_profit"] = expected_profit
+                # =====================================================
+        # MARKET ANALYTICS
+        # =====================================================
 
-            "resistance":
-                option_chain["resistance"],
+        state["pcr"] = pcr
 
-            "oi_bias":
-                option_chain["oi_bias"],
+        state["oi"] = oi
 
-            "entry_price":
-                    opt_price,
+        state["oi_structure"] = oi_structure
 
-            "stop_loss":
-                    round(
-                        opt_price * 0.90,
-                                    2
-                        ),
+        state["trend"] = trend
 
-            "target":
-                    round(
-                        opt_price * 1.20,
-                                    2
-                        ),
+        state["market_regime"] = market_regime
 
-            "risk_reward":
-                    round(
-                        (
-                            (opt_price * 1.20) - opt_price
-                        )
-                        /
-                        (
-                            opt_price - (opt_price * 0.90)
-                        ),
-                        2
-                ),
+        # =====================================================
+        # GREEKS (AI SELECTED OPTION)
+        # =====================================================
 
-            "opt_price":
-                opt_price,
+        state["delta"] = selected_greeks["delta"]
 
-            "opt_symbol":
-                f"{symbol} "
-                f"{strike} "
-                f"{option_type}",
+        state["gamma"] = selected_greeks["gamma"]
 
-            "mock_entry":
-                opt_price * 0.95,
+        state["theta"] = selected_greeks["theta"]
 
-            "mock_size":
-                lot_size,
-           
-        }
+        state["vega"] = selected_greeks["vega"]
+
+        # =====================================================
+        # OPTION CHAIN
+        # =====================================================
+
+        state["atm_strike"] = option_chain["atm_strike"]
+
+        state["atm_ce"] = option_chain["atm_ce"]
+
+        state["atm_pe"] = option_chain["atm_pe"]
+
+        state["ce_ltp"] = option_chain["ce_ltp"]
+
+        state["pe_ltp"] = option_chain["pe_ltp"]
+
+        state["call_oi"] = option_chain["call_oi"]
+
+        state["put_oi"] = option_chain["put_oi"]
+
+        state["call_volume"] = option_chain["call_volume"]
+
+        state["put_volume"] = option_chain["put_volume"]
+
+        state["max_pain"] = option_chain["max_pain"]
+
+        state["support"] = option_chain["support"]
+
+        state["resistance"] = option_chain["resistance"]
+
+        state["oi_bias"] = option_chain["oi_bias"]
+
+        # =====================================================
+        # OPTION DETAILS
+        # =====================================================
+
+        state["opt_price"] = opt_price
+
+        state["opt_symbol"] = (
+
+            f"{symbol} "
+
+            f"{strike} "
+
+            f"{option_type}"
+
+        )
+
+        state["mock_entry"] = round(
+
+            decision.trade_plan.entry * 0.95,
+
+            2
+
+        )
+
+        state["mock_size"] = lot_size
+
+        # =====================================================
+        # AI OUTPUT
+        # =====================================================
+
+        state["ai_risk"] = decision.risk
+
+        state["ai_reasons"] = decision.reasons
+
+        state["ai_warnings"] = decision.warnings
+
+        # =====================================================
+        # STORE STATE
+        # =====================================================
+
+        states[asset_name] = state
+            # =====================================================
+    # VALIDATION
+    # =====================================================
+
+    if not states:
+
+        st.warning(
+            "No market states were generated."
+        )
+
+    else:
+
+        print(
+            f"Generated {len(states)} live states."
+        )
+
+        for asset, data in states.items():
+
+            print(
+
+                asset,
+
+                data["action"],
+
+                data["trade_confidence"]
+
+            )
+
+    # =====================================================
+    # RETURN
+    # =====================================================
 
     return states
-
 @st.fragment(run_every="300ms")
 def render_live_top_cards():
+
+    live_states = st.session_state.get(
+        "global_fund_states",
+        {}
+    )
 
     col1, col2 = st.columns(2)
 
     with col1:
 
-        nifty_state = global_fund_states.get(
+        nifty_state = live_states.get(
             "NIFTY 50 INDEX",
             {}
         ).copy()
+
+        if not nifty_state:
+            nifty_state = {
+                "action": "NO TRADE",
+                "change_7d": 0.0,
+                "spot": 0.0,
+                "probability": 0.0,
+                "trend": "WAITING",
+                "market_regime": "LOADING",
+                "pcr": 0.0,
+                "oi": 0,
+                "signal_score": 0,
+                "delta": 0.0,
+                "gamma": 0.0,
+                "theta": 0.0,
+                "vega": 0.0
+            }
 
         nifty_tick = LIVE_STATE.get(
             "NIFTY",
@@ -966,10 +1191,27 @@ def render_live_top_cards():
 
     with col2:
 
-        bank_state = global_fund_states.get(
+        bank_state = live_states.get(
             "BANK NIFTY INDEX",
             {}
         ).copy()
+
+        if not bank_state:
+            bank_state = {
+                "action": "NO TRADE",
+                "change_7d": 0.0,
+                "spot": 0.0,
+                "probability": 0.0,
+                "trend": "WAITING",
+                "market_regime": "LOADING",
+                "pcr": 0.0,
+                "oi": 0,
+                "signal_score": 0,
+                "delta": 0.0,
+                "gamma": 0.0,
+                "theta": 0.0,
+                "vega": 0.0
+            }
 
         bank_tick = LIVE_STATE.get(
             "BANKNIFTY",
@@ -999,8 +1241,220 @@ st.caption(
     f"System Time: "
     f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
     f"| SmartAPI Connected "
-    f"| State Refresh: 30 Seconds"
+    f"| Top Cards: Live WebSocket "
+    f"| Analytics Refresh: 30 Seconds"
 )
+@st.fragment(run_every="30s")
+def render_analytics_dashboard():
+
+    market_data = fetch_live_market_data(
+        initialize_angel
+    )
+
+    if market_data is None:
+        st.warning("Analytics refresh failed: market data unavailable")
+        return
+
+    global_fund_states = build_live_state(
+        market_data
+    )
+
+    
+
+    if not global_fund_states:
+        st.warning("No analytics state available right now.")
+        return
+    st.session_state["global_fund_states"] = global_fund_states
+
+    # =====================================================
+    # STRENGTH METER
+    # =====================================================
+
+    st.subheader(
+        "📊 Signal Strength Matrix"
+    )
+
+    st.html(
+        render_strength_meter(
+            "PCR + OI + PRICE MODEL",
+            global_fund_states
+        )
+    )
+
+    # =====================================================
+    # SIGNAL TABLE
+    # =====================================================
+
+    st.subheader(
+        "⚡ Signal Matrix"
+    )
+
+    (
+        signal_rows,
+        highest_prob_asset,
+        highest_prob_val
+    ) = render_signals_table(
+        global_fund_states
+    )
+
+    st.html(
+        f"""
+        <table class="custom-table">
+
+            <thead>
+                <tr>
+                    <th>OPTION</th>
+                    <th>SIGNAL</th>
+                    <th>PCR</th>
+                    <th>OI</th>
+                    <th>OI BUILDUP</th>
+                    <th>TREND</th>
+                    <th>SCORE</th>
+                    <th>DELTA</th>
+                    <th>GAMMA</th>
+                    <th>THETA</th>
+                    <th>VEGA</th>
+                    <th>PROBABILITY</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {signal_rows}
+            </tbody>
+
+        </table>
+        """,
+    )
+
+    # =====================================================
+    # POSITION TABLE
+    # =====================================================
+
+    st.subheader(
+        "💼 Position Book"
+    )
+
+    (
+        rows_html,
+        total_unrealized_pnl,
+        pnl_color
+    ) = render_position_table(
+        global_fund_states
+    )
+
+    st.html(
+        f"""
+        <table class="custom-table">
+
+            <thead>
+                <tr>
+                    <th>ASSET</th>
+                    <th>DIRECTION</th>
+                    <th>SIZE</th>
+                    <th>ENTRY</th>
+                    <th>SPOT</th>
+                    <th>PNL</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {rows_html}
+
+                <tr>
+                    <td colspan="5"
+                        style="
+                        text-align:right;
+                        color:#8c9bae;
+                        "
+                    >
+                        TOTAL PNL
+                    </td>
+
+                    <td
+                        style="
+                        color:{pnl_color};
+                        font-weight:bold;
+                        "
+                    >
+                        ₹{total_unrealized_pnl:,.2f}
+                    </td>
+
+                </tr>
+
+            </tbody>
+
+        </table>
+        """,
+    )
+
+    # =====================================================
+    # TRADE OF THE MOMENT
+    # =====================================================
+
+    if global_fund_states:
+
+        best_asset = max(
+            global_fund_states.items(),
+            key=lambda x: x[1].get("trade_confidence", 0)
+        )
+
+        best_asset_name = best_asset[0]
+        best_asset_data = best_asset[1].copy()
+
+    else:
+        best_asset_name = "NO LIVE SIGNAL"
+        best_asset_data = {
+            "trade_confidence": 0,
+            "action": "NO TRADE",
+            "probability": 0,
+            "entry_price": 0,
+            "stop_loss": 0,
+            "target": 0,
+            "risk_reward": 0,
+            "recommended_lots": 0,
+            "recommended_qty": 0,
+            "capital_required": 0,
+            "max_loss": 0,
+            "risk_percent": 0,
+            "expected_profit": 0,
+            "trade_reasons": ["No live signal available"]
+        }
+
+    if best_asset_data["trade_confidence"] < 40:
+        best_asset_data["action"] = "NO TRADE"
+        best_asset_data["trade_confidence"] = 0
+        best_asset_data["trade_reasons"] = [
+            "No setup meets minimum confidence threshold"
+        ]
+
+    st.subheader(
+        "🎯 Trade Recommendation Engine"
+    )
+
+    st.html(
+        render_trade_card(
+            best_asset_name,
+            best_asset_data
+        )
+    )
+
+    # =====================================================
+    # OPTION CHAIN INTELLIGENCE
+    # =====================================================
+
+    st.subheader(
+        "🎯 Option Chain Intelligence"
+    )
+
+    option_chain_html = render_option_chain_panel(
+        global_fund_states
+    )
+
+    if option_chain_html:
+        st.html(option_chain_html)
+    else:
+        st.warning("Option chain data not available right now.")
 
 # =====================================================
 # MARKET STATUS
@@ -1035,302 +1489,16 @@ if "websocket_started" not in st.session_state:
     st.session_state["websocket_started"] = True
 
 # =====================================================
-# FETCH LIVE MARKET DATA
-# =====================================================
-
-market_data = fetch_live_market_data(
-    initialize_angel
-)
-
-if market_data is None:
-    st.stop()
-
-# =====================================================
-# SESSION STATE FOR HEAVY DASHBOARD STATE
-# =====================================================
-
-if "last_state_refresh" not in st.session_state:
-    st.session_state["last_state_refresh"] = 0
-
-if "global_fund_states" not in st.session_state:
-    st.session_state["global_fund_states"] = {}
-
-current_time = time.time()
-
-if current_time - st.session_state["last_state_refresh"] >= 30:
-    st.session_state["global_fund_states"] = build_live_state(
-        market_data
-    )
-    st.session_state["last_state_refresh"] = current_time
-
-global_fund_states = st.session_state["global_fund_states"]
-
-# =====================================================
 # LIVE TOP CARDS
 # =====================================================
 
-render_live_top_cards()# STRENGTH METER
-# =====================================================
-
-st.subheader(
-    "📊 Signal Strength Matrix"
-)
-
-st.html(
-    render_strength_meter(
-        "PCR + OI + PRICE MODEL",
-        global_fund_states
-    )
-)
+render_live_top_cards()
 
 # =====================================================
-# SIGNAL TABLE
+# HEAVY ANALYTICS DASHBOARD
 # =====================================================
 
-st.subheader(
-    "⚡ Signal Matrix"
-)
-
-(
-    signal_rows,
-    highest_prob_asset,
-    highest_prob_val
-) = render_signals_table(
-    global_fund_states
-)
-
-st.html(
-    f"""
-    <table class="custom-table">
-
-        <thead>
-
-            <tr>
-
-                <th>OPTION</th>
-                <th>SIGNAL</th>
-                <th>PCR</th>
-                <th>OI</th>
-                <th>OI BUILDUP</th>
-                <th>TREND</th>
-                <th>SCORE</th>
-                <th>DELTA</th>
-                <th>GAMMA</th>
-                <th>THETA</th>
-                <th>VEGA</th>
-                <th>PROBABILITY</th>
-
-            </tr>
-
-        </thead>
-
-        <tbody>
-
-            {signal_rows}
-
-        </tbody>
-
-    </table>
-    """,
-)
-
-# =====================================================
-# POSITION TABLE
-# =====================================================
-
-st.subheader(
-    "💼 Position Book"
-)
-
-(
-    rows_html,
-    total_unrealized_pnl,
-    pnl_color
-) = render_position_table(
-    global_fund_states
-)
-
-st.html(
-    f"""
-            <table class="custom-table">
-
-        <thead>
-
-            <tr>
-
-                <th>ASSET</th>
-                <th>DIRECTION</th>
-                <th>SIZE</th>
-                <th>ENTRY</th>
-                <th>SPOT</th>
-                <th>PNL</th>
-
-            </tr>
-
-        </thead>
-
-        <tbody>
-
-            {rows_html}
-
-            <tr>
-
-                <td colspan="5"
-                    style="
-                    text-align:right;
-                    color:#8c9bae;
-                    "
-                >
-                    TOTAL PNL
-                </td>
-
-                <td
-                    style="
-                    color:{pnl_color};
-                    font-weight:bold;
-                    "
-                >
-                    ₹{total_unrealized_pnl:,.2f}
-                </td>
-
-            </tr>
-
-        </tbody>
-
-    </table>
-    """,
-)
-
-if global_fund_states:
-
-    best_asset = max(
-        global_fund_states.items(),
-        key=lambda x: x[1].get("trade_confidence", 0)
-    )
-
-    best_asset_name = best_asset[0]
-    best_asset_data = best_asset[1].copy()
-
-else:
-    best_asset_name = None
-    best_asset_data = None
-
-
-# =====================================================
-# TRADE OF THE MOMENT
-# =====================================================
-
-st.subheader("🎯 Trade Recommendation Engine")
-
-if best_asset_data is not None:
-
-    if best_asset_data.get("trade_confidence", 0) < 40:
-        best_asset_data["action"] = "NO TRADE"
-        best_asset_data["trade_confidence"] = 0
-        best_asset_data["trade_reasons"] = [
-            "No setup meets minimum confidence threshold"
-        ]
-
-    if (
-        best_asset_data.get("trade_confidence", 0) > 40
-        and best_asset_data.get("action") != "NO TRADE"
-    ):
-        log_trade(
-            best_asset_data,
-            best_asset_name
-        )
-
-    st.html(
-        render_trade_card(
-            best_asset_name,
-            best_asset_data
-        )
-    )
-
-else:
-    st.warning("No live trade setup available right now.")
-# =====================================================
-# OPTION CHAIN INTELLIGENCE
-# =====================================================
-
-st.subheader(
-    "🎯 Option Chain Intelligence"
-)
-
-option_chain_html = render_option_chain_panel(
-    global_fund_states
-)
-
-if option_chain_html:
-    st.html(option_chain_html)
-else:
-    st.warning("Option chain data not available right now.")
-
-# =====================================================
-# PRIMARY SIGNAL
-# =====================================================
-
-if highest_prob_asset:
-
-    asset_name = (
-        highest_prob_asset[0]
-    )
-
-    asset_data = (
-        highest_prob_asset[1]
-    )
-
-    st.markdown("---")
-
-    st.html(
-        f"""
-        <div class="macro-alert-box">
-
-            <b>
-                🎯 PRIMARY SIGNAL
-            </b>
-
-            <br><br>
-
-            Asset:
-            <b>{asset_name}</b>
-
-            <br>
-
-            Signal:
-            <b>{asset_data['action']}</b>
-
-            <br>
-
-            PCR:
-            <b>{asset_data['pcr']:.2f}</b>
-            <br>
-
-            Trend:
-                <b>{asset_data['trend']}</b>
-
-        OI Buildup:
-                <b>{asset_data['oi_structure']}</b>
-
-            <br>
-
-            OI:
-            <b>{asset_data['oi']:,}</b>
-
-            <br>
-
-            Score:
-            <b>{asset_data['signal_score']}</b>
-
-            <br>
-
-            Probability:
-            <b>{asset_data['probability']:.1f}%</b>
-
-        </div>
-        """,
-    )
-    st.markdown("---")
+render_analytics_dashboard()
 
 st.subheader(
     "📒 Trade Journal"
