@@ -279,58 +279,343 @@ def get_live_asset_data(symbol: str) -> Dict[str, Any]:
     }
 
 
+# ==========================================================
+# FLOW V2: REAL TECHNICAL FEATURE CALCULATORS
+# ==========================================================
+
+def _compute_ema(closes: List[float], period: int) -> float:
+    """Exponential Moving Average from a list of close prices"""
+    if len(closes) < period:
+        return closes[-1] if closes else 0.0
+    k = 2.0 / (period + 1)
+    ema = sum(closes[:period]) / period
+    for price in closes[period:]:
+        ema = price * k + ema * (1 - k)
+    return round(ema, 2)
+
+
+def _compute_rsi(closes: List[float], period: int = 14) -> float:
+    """Wilder's RSI from close price series"""
+    if len(closes) < period + 1:
+        return 50.0
+    gains, losses = [], []
+    for i in range(1, len(closes)):
+        delta = closes[i] - closes[i - 1]
+        gains.append(max(0.0, delta))
+        losses.append(max(0.0, -delta))
+    avg_gain = sum(gains[-period:]) / period
+    avg_loss = sum(losses[-period:]) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 2)
+
+
+def _detect_candlestick_pattern(bars: List[Dict]) -> str:
+    """Detect the dominant candlestick pattern from the last 3 bars"""
+    if len(bars) < 2:
+        return "NONE"
+
+    cur = bars[-1]
+    prev = bars[-2]
+
+    c_body = abs(cur["close"] - cur["open"])
+    c_range = cur["high"] - cur["low"]
+    c_upper_wick = cur["high"] - max(cur["open"], cur["close"])
+    c_lower_wick = min(cur["open"], cur["close"]) - cur["low"]
+    c_bull = cur["close"] > cur["open"]
+
+    p_body = abs(prev["close"] - prev["open"])
+    p_bull = prev["close"] > prev["open"]
+
+    # Guard: avoid division by zero
+    if c_range == 0:
+        return "NONE"
+
+    body_ratio = c_body / c_range
+    upper_wick_ratio = c_upper_wick / c_range
+    lower_wick_ratio = c_lower_wick / c_range
+
+    # --- ENGULFING ---
+    if c_bull and not p_bull and c_body > p_body * 1.2 and cur["open"] <= prev["close"] and cur["close"] >= prev["open"]:
+        return "BULLISH_ENGULFING"
+    if not c_bull and p_bull and c_body > p_body * 1.2 and cur["open"] >= prev["close"] and cur["close"] <= prev["open"]:
+        return "BEARISH_ENGULFING"
+
+    # --- SHOOTING STAR ---
+    if upper_wick_ratio > 0.55 and body_ratio < 0.30 and lower_wick_ratio < 0.15 and not c_bull:
+        return "SHOOTING_STAR"
+
+    # --- HAMMER ---
+    if lower_wick_ratio > 0.55 and body_ratio < 0.30 and upper_wick_ratio < 0.15 and c_bull:
+        return "HAMMER_REJECTION"
+
+    # --- PINBAR (either direction, long wick > 60%) ---
+    if upper_wick_ratio > 0.60 or lower_wick_ratio > 0.60:
+        return "PINBAR"
+
+    # --- MARUBOZU (full body > 85% of range) ---
+    if body_ratio > 0.85:
+        return "MARUBOZU_BULL" if c_bull else "MARUBOZU_BEAR"
+
+    # --- DOJI (tiny body < 10% of range) ---
+    if body_ratio < 0.10:
+        return "DOJI"
+
+    return "NONE"
+
+
+def _detect_market_structure(closes: List[float]) -> str:
+    """Classify market structure: HIGHER_HIGHS, LOWER_LOWS, or CONSOLIDATING"""
+    if len(closes) < 10:
+        return "CONSOLIDATING"
+    # Split into 3 segments and check swing directions
+    seg = len(closes) // 3
+    s1 = max(closes[:seg])
+    s2 = max(closes[seg:2*seg])
+    s3 = max(closes[2*seg:])
+    l1 = min(closes[:seg])
+    l2 = min(closes[seg:2*seg])
+    l3 = min(closes[2*seg:])
+
+    highs_rising = s3 > s2 > s1
+    lows_rising  = l3 > l2 > l1
+    highs_falling = s3 < s2 < s1
+    lows_falling  = l3 < l2 < l1
+
+    if highs_rising and lows_rising:
+        return "HIGHER_HIGHS"
+    if highs_falling and lows_falling:
+        return "LOWER_LOWS"
+    return "CONSOLIDATING"
+
+
+def _detect_trap_state(bars: List[Dict], spot: float, support: float, resistance: float, rsi: float, pcr: float, oi_structure: str) -> str:
+    """Detect retail trap conditions from price action + derivatives"""
+    if len(bars) < 5:
+        return "NONE"
+
+    recent_high = max(b["high"] for b in bars[-5:])
+    recent_low  = min(b["low"] for b in bars[-5:])
+    prev_close  = bars[-2]["close"] if len(bars) >= 2 else spot
+
+    # Bull Trap: price spiked above resistance then closed back below
+    if recent_high > resistance and spot < resistance and spot < prev_close:
+        if rsi > 65 or "LONG UNWINDING" in oi_structure:
+            return "BULL_TRAP_REJECTION"
+
+    # Bear Trap: price dipped below support then closed back above
+    if recent_low < support and spot > support and spot > prev_close:
+        if rsi < 35 or "SHORT COVERING" in oi_structure:
+            return "BEAR_TRAP_REBOUND"
+
+    # Liquidity Sweep: extreme RSI at key level
+    if rsi < 28 and abs(spot - support) / (spot or 1) < 0.008:
+        return "LIQUIDITY_SWEEP"
+    if rsi > 72 and abs(spot - resistance) / (spot or 1) < 0.008:
+        return "LIQUIDITY_SWEEP"
+
+    # Clean Breakout: price above resistance with expanding OI
+    if spot > resistance and "LONG BUILDUP" in oi_structure and rsi > 50:
+        return "CLEAN_BREAKOUT"
+
+    return "NONE"
+
+
+def _compute_fear_greed(rsi: float, pcr: float, change: float, iv: float) -> float:
+    """Composite Fear & Greed Score: 0 (Extreme Fear) to 100 (Extreme Greed)"""
+    # RSI contribution (40%)
+    rsi_score = rsi  # already 0-100
+
+    # PCR contribution (30%) — inverted: low PCR = greed, high PCR = fear
+    pcr_norm = max(0.0, min(2.0, pcr))
+    pcr_score = 100 - (pcr_norm / 2.0 * 100)
+
+    # Change contribution (20%)
+    change_score = 50 + (change * 5)  # +1% change → 55, -1% → 45
+    change_score = max(0, min(100, change_score))
+
+    # IV contribution (10%) — inverted: high IV = fear
+    iv_norm = max(0.0, min(40.0, iv))
+    iv_score = 100 - (iv_norm / 40.0 * 100)
+
+    composite = (rsi_score * 0.40) + (pcr_score * 0.30) + (change_score * 0.20) + (iv_score * 0.10)
+    return round(max(0.0, min(100.0, composite)), 1)
+
+
+def _compute_news_sentiment(change: float, pcr: float, oi_structure: str, iv: float) -> tuple:
+    """Derive news/macro sentiment score and headline from market conditions"""
+    score = 0.0
+    parts = []
+
+    # Change-based cue
+    if change > 1.5:
+        score += 0.4
+        parts.append("Strong positive momentum across indices")
+    elif change > 0.5:
+        score += 0.2
+        parts.append("Positive domestic institutional inflows")
+    elif change < -1.5:
+        score -= 0.4
+        parts.append("Broad market selloff; FII outflows pressuring indices")
+    elif change < -0.5:
+        score -= 0.2
+        parts.append("Muted global cues weighing on sentiment")
+    else:
+        parts.append("Stable interest rate outlook; range-bound session")
+
+    # PCR-based macro read
+    if pcr > 1.3:
+        score += 0.2
+        parts.append("aggressive put writing suggests institutional bullishness")
+    elif pcr < 0.75:
+        score -= 0.2
+        parts.append("heavy call buying signals retail overbought positioning")
+
+    # OI structure cue
+    if "LONG BUILDUP" in oi_structure:
+        score += 0.15
+        parts.append("fresh long buildup in futures confirms risk-on tone")
+    elif "SHORT BUILDUP" in oi_structure:
+        score -= 0.15
+        parts.append("short buildup in futures signals risk-off positioning")
+
+    # IV-based macro fear
+    if iv > 22:
+        score -= 0.15
+        parts.append(f"elevated implied volatility ({iv:.1f}%) reflects market stress")
+    elif iv < 12:
+        score += 0.1
+        parts.append(f"low IV ({iv:.1f}%) reflects institutional confidence")
+
+    score = round(max(-1.0, min(1.0, score)), 2)
+    headline = "; ".join(parts[:3]).capitalize() + "."
+    return score, headline
+
+
+def _compute_institutional_bias(pcr: float, oi_structure: str, change: float) -> str:
+    """Derive institutional bias from derivatives positioning"""
+    long_score = 0
+    if pcr > 1.1:
+        long_score += 2
+    if "LONG BUILDUP" in oi_structure:
+        long_score += 2
+    elif "SHORT COVERING" in oi_structure:
+        long_score += 1
+    if change > 0.3:
+        long_score += 1
+
+    short_score = 0
+    if pcr < 0.90:
+        short_score += 2
+    if "SHORT BUILDUP" in oi_structure:
+        short_score += 2
+    elif "LONG UNWINDING" in oi_structure:
+        short_score += 1
+    if change < -0.3:
+        short_score += 1
+
+    if long_score > short_score + 1:
+        return "ACCUMULATION"
+    if short_score > long_score + 1:
+        return "DISTRIBUTION"
+    return "NEUTRAL"
+
+
 def compute_full_ai_state() -> Dict[str, Any]:
-    """Runs complete AI Decision Engine pipeline across all assets"""
+    """Runs complete FLOW V2 AI Decision Engine pipeline — deterministic, psychology/news/pattern aware"""
     states = {}
-    
+
     for symbol in ["NIFTY", "BANKNIFTY"]:
         mkt = get_live_asset_data(symbol)
         spot = mkt["spot"]
         change = mkt["change"]
         oi = mkt["oi"]
         pcr = mkt["pcr"]
-        
+
         oi_structure = classify_oi_buildup(change, oi)
         trend = calculate_trend(change, pcr, oi_structure)
-        
+
         step = SIM_BASE[symbol]["strike_step"]
         atm_strike = int(round(spot / step)) * step
         lot_size = SIM_BASE[symbol]["lot_size"]
         premium_factor = 0.0065 if symbol == "NIFTY" else 0.0085
         opt_price = round(spot * premium_factor, 2)
-        
-        # Option Chain simulation values
+
+        # Option Chain values
         call_oi = int(oi * (0.45 if pcr > 1.0 else 0.55))
         put_oi = int(call_oi * pcr)
-        call_vol = int(random.uniform(400000, 1200000))
+        # Deterministic volume ratio from PCR + OI structure
+        base_vol = int(oi * 0.012)
+        call_vol = int(base_vol * (0.9 if pcr > 1.0 else 1.1))
         put_vol = int(call_vol * pcr)
         oi_bias = "BULLISH" if put_oi > call_oi else "BEARISH"
-        
+
         market_regime = classify_market_regime(change, pcr, oi_bias)
-        
+
         greeks_ce = calculate_greeks(spot, atm_strike, is_call=True)
         greeks_pe = calculate_greeks(spot, atm_strike, is_call=False)
-        
-        # AI Features
+
+        # -------------------------------------------------------
+        # COMPUTE REAL TECHNICAL FEATURES FROM PRICE HISTORY
+        # -------------------------------------------------------
+        bars = PRICE_HISTORY.get(symbol, [])
+        closes = [b["close"] for b in bars] if bars else [spot]
+
+        rsi = _compute_rsi(closes, period=14)
+        ema9 = _compute_ema(closes, period=9)
+        ema21 = _compute_ema(closes, period=21)
+        candlestick_pattern = _detect_candlestick_pattern(bars)
+        market_structure = _detect_market_structure(closes)
+
+        support = atm_strike - (step * 2)
+        resistance = atm_strike + (step * 2)
+
+        # Use a deterministic IV based on pcr and change
+        base_iv = 13.5 if symbol == "NIFTY" else 16.0
+        iv = round(base_iv + (abs(change) * 0.8) + (max(0, 1.2 - pcr) * 3.0), 1)
+
+        trap_state = _detect_trap_state(bars, spot, support, resistance, rsi, pcr, oi_structure)
+        fear_greed = _compute_fear_greed(rsi, pcr, change, iv)
+        institutional_bias = _compute_institutional_bias(pcr, oi_structure, change)
+        news_score, macro_headline = _compute_news_sentiment(change, pcr, oi_structure, iv)
+
+        # -------------------------------------------------------
+        # BUILD FULL MARKET FEATURES FOR V2 DECISION ENGINE
+        # -------------------------------------------------------
         features = MarketFeatures(
             trend=trend,
             market_regime=market_regime,
             oi_structure=oi_structure,
             spot=spot,
             option_premium=opt_price,
-            support=atm_strike - (step * 2),
-            resistance=atm_strike + (step * 2),
+            support=support,
+            resistance=resistance,
+            max_pain=float(atm_strike),
             pcr=pcr,
+            pcr_trend="EXPANDING" if pcr > 1.1 else ("CONTRACTING" if pcr < 0.9 else "NEUTRAL"),
+            oi_bias=oi_bias,
             delta=greeks_ce["delta"],
             gamma=greeks_ce["gamma"],
             theta=greeks_ce["theta"],
             vega=greeks_ce["vega"],
+            iv=iv,
             call_volume=call_vol,
-            put_volume=put_vol
+            put_volume=put_vol,
+            rsi=rsi,
+            ema_9=ema9,
+            ema_21=ema21,
+            candlestick_pattern=candlestick_pattern,
+            market_structure=market_structure,
+            trap_state=trap_state,
+            fear_greed_score=fear_greed,
+            institutional_bias=institutional_bias,
+            news_sentiment_score=news_score,
+            macro_headline=macro_headline
         )
-        
+
         decision = decision_engine.evaluate(features)
-        
+
         action = decision.action
         if action == "BUY CALL":
             dir_factor = 1
@@ -344,32 +629,48 @@ def compute_full_ai_state() -> Dict[str, Any]:
             dir_factor = 0
             option_type = "CE" if change >= 0 else "PE"
             sel_greeks = greeks_ce
-            
+
         confidence = decision.confidence
         rr = decision.trade_plan.risk_reward or 2.0
         lots, qty = calculate_position_size(opt_price, confidence, rr, symbol)
-        
+
         cap_req = round(qty * opt_price, 2)
         entry_p = decision.trade_plan.entry or opt_price
         stop_p = decision.trade_plan.stop_loss or round(opt_price * 0.85, 2)
         target_p = decision.trade_plan.target or round(opt_price * 1.30, 2)
-        
+
         max_loss = round(max(0.0, (entry_p - stop_p) * qty), 2)
         exp_profit = round(max(0.0, (target_p - entry_p) * qty), 2)
         risk_pct = round((max_loss / TOTAL_CAPITAL) * 100, 2)
-        
+
         asset_title = f"{symbol} 50 INDEX" if symbol == "NIFTY" else "BANK NIFTY INDEX"
-        
-        # Breakdown of individual specialists
+
+        # Specialist breakdown from V2 engine
+        sbd = decision.specialist_breakdown or {}
         specialist_scores = {
-            "trend": {"status": trend, "score": 25 if "BULLISH" in trend else (-25 if "BEARISH" in trend else 0)},
-            "pcr": {"value": pcr, "score": 20 if pcr > 1.1 else (-20 if pcr < 0.9 else 5)},
-            "oi_buildup": {"structure": oi_structure, "score": 20 if "LONG BUILDUP" in oi_structure else -15},
-            "greeks": {"delta": sel_greeks["delta"], "theta": sel_greeks["theta"], "score": 15},
-            "market_regime": {"regime": market_regime, "score": 15 if "TRENDING" in market_regime else 5},
-            "volume_flow": {"bias": oi_bias, "call_vol": call_vol, "put_vol": put_vol, "score": 15}
+            "pattern": {
+                "candlestick": candlestick_pattern, "rsi": rsi,
+                "ema_cross": "GOLDEN" if ema9 > ema21 else "DEATH",
+                "structure": market_structure,
+                "score": sbd.get("pattern", {}).get("raw_score", 0)
+            },
+            "psychology": {
+                "trap": trap_state, "fear_greed": fear_greed,
+                "institutional": institutional_bias,
+                "score": sbd.get("psychology", {}).get("raw_score", 0)
+            },
+            "news": {
+                "sentiment": news_score, "headline": macro_headline[:60],
+                "score": sbd.get("news", {}).get("raw_score", 0)
+            },
+            "oi_buildup": {"structure": oi_structure, "score": sbd.get("oi", {}).get("raw_score", 0)},
+            "pcr": {"value": pcr, "score": sbd.get("pcr", {}).get("raw_score", 0)},
+            "greeks": {"delta": sel_greeks["delta"], "theta": sel_greeks["theta"], "iv": iv, "score": sbd.get("greeks", {}).get("raw_score", 0)},
+            "market_regime": {"regime": market_regime, "score": sbd.get("regime", {}).get("raw_score", 0)},
+            "volume_flow": {"bias": oi_bias, "call_vol": call_vol, "put_vol": put_vol, "score": sbd.get("volume", {}).get("raw_score", 0)},
+            "trend": {"status": trend, "score": sbd.get("trend", {}).get("raw_score", 0)}
         }
-        
+
         states[asset_title] = {
             "symbol": symbol,
             "asset_title": asset_title,
@@ -404,13 +705,24 @@ def compute_full_ai_state() -> Dict[str, Any]:
             "gamma": sel_greeks["gamma"],
             "theta": sel_greeks["theta"],
             "vega": sel_greeks["vega"],
+            "iv": iv,
+            "rsi": rsi,
+            "ema_9": ema9,
+            "ema_21": ema21,
+            "candlestick_pattern": candlestick_pattern,
+            "market_structure": market_structure,
+            "trap_state": trap_state,
+            "fear_greed_score": fear_greed,
+            "institutional_bias": institutional_bias,
+            "news_sentiment_score": news_score,
+            "macro_headline": macro_headline,
             "call_oi": call_oi,
             "put_oi": put_oi,
             "call_volume": call_vol,
             "put_volume": put_vol,
             "max_pain": atm_strike,
-            "support": atm_strike - (step * 2),
-            "resistance": atm_strike + (step * 2),
+            "support": support,
+            "resistance": resistance,
             "oi_bias": oi_bias,
             "dir_factor": dir_factor,
             "mock_entry": round(entry_p * 0.96, 2),
@@ -418,7 +730,7 @@ def compute_full_ai_state() -> Dict[str, Any]:
             "specialist_scores": specialist_scores,
             "timestamp": datetime.now().strftime("%H:%M:%S")
         }
-        
+
     return states
 
 
