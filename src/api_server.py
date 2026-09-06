@@ -50,11 +50,11 @@ from modules.signal_engine import (
 from modules.journal_engine import JOURNAL_FILE, log_trade
 from modules.websocket_engine import LIVE_STATE
 
-# SmartAPI credentials & Gateway
-API_KEY = "3xK955MH"
-CLIENT_CODE = "AACI729341"
-PIN = "0912"
-TOTP_SECRET = "ZG4AT5YV6GPJQNPPVHLESN5JZI"
+# SmartAPI credentials & Gateway (with environment variable support)
+API_KEY = os.getenv("API_KEY", "3xK955MH")
+CLIENT_CODE = os.getenv("CLIENT_CODE", "AACI729341")
+PIN = os.getenv("PIN", "0912")
+TOTP_SECRET = os.getenv("TOTP_SECRET", "ZG4AT5YV6GPJQNPPVHLESN5JZI")
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 JOURNAL_PATH = PROJECT_ROOT / "trade_journal.csv"
