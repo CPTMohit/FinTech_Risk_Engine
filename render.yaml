@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: flow-trading-desk
+    env: python
+    buildCommand: pip install -r requirements.txt && pip install fastapi uvicorn[standard] pyotp smartapi-python
+    startCommand: uvicorn src.api_server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: API_KEY
+        value: 3xK955MH
+      - key: CLIENT_CODE
+        value: AACI729341
+      - key: PIN
+        value: 0912
+      - key: TOTP_SECRET
+        value: ZG4AT5YV6GPJQNPPVHLESN5JZI

@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FLOW | Algorithmic Options & Paper Trading Terminal</title>
+  
+  <!-- Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body class="dark-theme">
+
+  <!-- ================= TOP NAVIGATION / TICKER BAR ================= -->
+  <header class="top-nav">
+    <div class="nav-left">
+      <!-- Brand Logo: FLOW -->
+      <div class="brand-logo">
+        <div class="logo-flow-wave">
+          <i class="fa-solid fa-water"></i>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">FLOW <span class="badge-v2">DESK</span></span>
+          <span class="brand-subtitle">Algorithmic Options & Paper Terminal</span>
+        </div>
+      </div>
+
+      <!-- Quick Index Tickers -->
+      <div class="header-tickers">
+        <div class="ticker-box active" id="ticker-nifty" onclick="switchSymbol('NIFTY')">
+          <div class="ticker-name-row">
+            <span class="ticker-name">NIFTY 50</span>
+            <span class="ticker-change" id="nifty-change">+0.10%</span>
+          </div>
+          <div class="ticker-price-row">
+            <span class="ticker-price" id="nifty-price">₹23,897.70</span>
+            <span class="ticker-pcr" id="nifty-pcr">PCR: 1.08</span>
+          </div>
+        </div>
+
+        <div class="ticker-box" id="ticker-banknifty" onclick="switchSymbol('BANKNIFTY')">
+          <div class="ticker-name-row">
+            <span class="ticker-name">BANK NIFTY</span>
+            <span class="ticker-change" id="banknifty-change">-0.02%</span>
+          </div>
+          <div class="ticker-price-row">
+            <span class="ticker-price" id="banknifty-price">₹57,369.65</span>
+            <span class="ticker-pcr" id="banknifty-pcr">PCR: 0.98</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Navigation Tabs -->
+    <nav class="nav-center">
+      <button class="nav-tab active" onclick="showTab('terminal-view')">
+        <i class="fa-solid fa-chart-candlestick"></i> Terminal
+      </button>
+      <button class="nav-tab" onclick="showTab('paper-trading-view')">
+        <i class="fa-solid fa-receipt"></i> Paper Trading <span class="badge-paper">VIRTUAL</span>
+      </button>
+      <button class="nav-tab" onclick="showTab('option-chain-view')">
+        <i class="fa-solid fa-layer-group"></i> Option Chain
+      </button>
+      <button class="nav-tab" onclick="showTab('positions-view')">
+        <i class="fa-solid fa-briefcase"></i> Positions <span class="badge-count" id="open-positions-badge">0</span>
+      </button>
+      <button class="nav-tab" onclick="showTab('journal-view')">
+        <i class="fa-solid fa-book-journal-whills"></i> Journal
+      </button>
+      <button class="nav-tab" onclick="showTab('diagnostics-view')">
+        <i class="fa-solid fa-server"></i> Backend Pipeline
+      </button>
+    </nav>
+
+    <!-- Right Status & Virtual Paper Wallet HUD -->
+    <div class="nav-right">
+      <!-- Market Mode Switcher -->
+      <div class="status-indicator" id="market-mode-box" onclick="toggleSimulationMode()" title="Click to toggle Testing Sandbox Mode">
+        <span class="pulse-dot" id="gateway-dot"></span>
+        <div class="status-text-block">
+          <span class="status-label" id="gateway-status">Market Closed</span>
+          <span class="status-sub" id="latency-meter">🔴 Real Market (Frozen)</span>
+        </div>
+      </div>
+
+      <!-- Virtual Paper Trading Balance HUD -->
+      <div class="paper-wallet-hud" onclick="promptResetWallet()" title="Click to reset virtual funds">
+        <div class="wallet-icon"><i class="fa-solid fa-wallet"></i></div>
+        <div class="wallet-text">
+          <span class="wallet-label">VIRTUAL CAPITAL</span>
+          <span class="wallet-val" id="hud-paper-balance">₹10,00,000.00</span>
+        </div>
+        <button class="btn-wallet-reset"><i class="fa-solid fa-arrows-rotate"></i></button>
+      </div>
+
+      <div class="clock-hud" id="live-clock">
+        00:00:00 IST
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= NOTIFICATION TOAST CONTAINER ================= -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ================= MAIN WORKSPACE CONTAINER ================= -->
+  <main class="main-container">
+
+    <!-- ================= VIEW 1: FLOW TRADING TERMINAL ================= -->
+    <section id="terminal-view" class="view-panel active">
+      <div class="terminal-grid">
+        
+        <!-- LEFT COLUMN: Chart Station & AI Order Desk -->
+        <div class="terminal-left">
+          
+          <!-- Chart Station Card -->
+          <div class="panel-card chart-panel">
+            <div class="panel-header">
+              <div class="chart-title-area">
+                <h2 class="asset-title-heading" id="current-asset-title">NIFTY 50 INDEX</h2>
+                <span class="spot-badge" id="chart-spot-display">₹23,897.70</span>
+                <span class="change-badge bullish" id="chart-change-display">+0.10%</span>
+                <span class="tag-regime" id="chart-regime-tag">RANGE BOUND MARKET</span>
+              </div>
+
+              <div class="chart-controls">
+                <div class="timeframe-group">
+                  <button class="tf-btn active" onclick="setTimeframe('1m')">1M</button>
+                  <button class="tf-btn" onclick="setTimeframe('5m')">5M</button>
+                  <button class="tf-btn" onclick="setTimeframe('15m')">15M</button>
+                  <button class="tf-btn" onclick="setTimeframe('1D')">1D</button>
+                </div>
+
+                <div class="overlay-toggles">
+                  <button class="toggle-pill active" id="btn-toggle-ema" onclick="toggleEMA()">
+                    <i class="fa-solid fa-wave-square"></i> EMA (9/21)
+                  </button>
+                  <button class="toggle-pill active" id="btn-toggle-sr" onclick="toggleSR()">
+                    <i class="fa-solid fa-arrows-split-up-and-left"></i> S/R Levels
+                  </button>
+                  <button class="toggle-pill active" id="btn-toggle-signals" onclick="toggleSignals()">
+                    <i class="fa-solid fa-crosshairs"></i> AI Signals
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Canvas Chart Area -->
+            <div class="chart-canvas-wrapper" id="chart-container">
+              <canvas id="trading-chart"></canvas>
+              
+              <!-- Realtime Chart Tooltip overlay -->
+              <div id="chart-tooltip" class="chart-tooltip hidden">
+                <div class="tt-time" id="tt-time">--:--:--</div>
+                <div class="tt-grid">
+                  <div><span>O:</span> <b id="tt-open">0</b></div>
+                  <div><span>H:</span> <b id="tt-high">0</b></div>
+                  <div><span>L:</span> <b id="tt-low">0</b></div>
+                  <div><span>C:</span> <b id="tt-close">0</b></div>
+                  <div><span>Vol:</span> <b id="tt-vol">0</b></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="chart-footer-metrics">
+              <div class="metric-item">
+                <span class="m-label">SUPPORT (S1)</span>
+                <span class="m-val" id="chart-support-val">₹23,800</span>
+              </div>
+              <div class="metric-item">
+                <span class="m-label">RESISTANCE (R1)</span>
+                <span class="m-val" id="chart-resistance-val">₹24,000</span>
+              </div>
+              <div class="metric-item">
+                <span class="m-label">MAX PAIN</span>
+                <span class="m-val" id="chart-maxpain-val">₹23,900</span>
+              </div>
+              <div class="metric-item">
+                <span class="m-label">TOTAL OI</span>
+                <span class="m-val" id="chart-oi-val">8.48 Cr</span>
+              </div>
+              <div class="metric-item">
+                <span class="m-label">OI BIAS</span>
+                <span class="m-val bullish" id="chart-oibias-val">BULLISH</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom: Quick Trade Execution Ticket -->
+          <div class="panel-card trade-ticket-card">
+            <div class="ticket-header">
+              <div class="ticket-title-block">
+                <span class="ticket-sub">ALGORITHMIC AI TRADE PLAN</span>
+                <h3 class="ticket-heading" id="ticket-contract-name">NIFTY 23900 CALL (CE)</h3>
+              </div>
+              <div class="ticket-action-badge action-buy-call" id="ticket-action-badge">
+                <i class="fa-solid fa-arrow-trend-up"></i> WATCH CALL
+              </div>
+            </div>
+
+            <div class="ticket-body-grid">
+              <div class="param-box">
+                <span class="p-label">RECOMMENDED ENTRY</span>
+                <span class="p-val" id="ticket-entry">₹155.30</span>
+              </div>
+              <div class="param-box">
+                <span class="p-label">STOP LOSS</span>
+                <span class="p-val bearish" id="ticket-sl">₹132.00</span>
+              </div>
+              <div class="param-box">
+                <span class="p-label">PROFIT TARGET</span>
+                <span class="p-val bullish" id="ticket-tp">₹201.90</span>
+              </div>
+              <div class="param-box">
+                <span class="p-label">RISK : REWARD</span>
+                <span class="p-val highlight" id="ticket-rr">2.00 : 1</span>
+              </div>
+            </div>
+
+            <!-- Position Sizer Controls -->
+            <div class="sizing-row">
+              <div class="size-input-group">
+                <label>Position Size (Lots):</label>
+                <div class="lot-stepper">
+                  <button onclick="adjustLots(-1)">-</button>
+                  <input type="number" id="input-lots" value="2" min="1" max="50" onchange="recalcOrderSizing()">
+                  <button onclick="adjustLots(1)">+</button>
+                </div>
+                <span class="qty-calc" id="display-quantity">150 Qty</span>
+              </div>
+
+              <div class="size-metrics">
+                <div><span>Margin Required:</span> <b id="ticket-capital">₹23,295</b></div>
+                <div><span>Max Risk:</span> <b class="bearish" id="ticket-maxloss">₹3,495 (1.7%)</b></div>
+                <div><span>Target Profit:</span> <b class="bullish" id="ticket-expprofit">₹6,990</b></div>
+              </div>
+
+              <button class="btn-execute-order" id="btn-execute" onclick="executeAlgorithmicOrder()">
+                <div class="btn-shine"></div>
+                <i class="fa-solid fa-bolt"></i> 1-CLICK PAPER ORDER
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- RIGHT COLUMN: AI Chief Decision Intelligence Hub -->
+        <div class="terminal-right">
+
+          <!-- AI Chief Decision Gauge Card -->
+          <div class="panel-card ai-hub-card">
+            <div class="panel-header">
+              <h3><i class="fa-solid fa-microchip"></i> FLOW Decision Engine</h3>
+              <span class="ai-status-pill" id="ai-risk-status">LOW RISK / HIGH CONVICTION</span>
+            </div>
+
+            <div class="ai-gauge-container">
+              <!-- Radial SVG Confidence Dial -->
+              <div class="radial-gauge-wrapper">
+                <svg class="radial-svg" viewBox="0 0 160 160">
+                  <circle class="gauge-bg" cx="80" cy="80" r="68"></circle>
+                  <circle class="gauge-progress" id="ai-gauge-circle" cx="80" cy="80" r="68" stroke-dasharray="427" stroke-dashoffset="85"></circle>
+                </svg>
+                <div class="gauge-inner-text">
+                  <span class="gauge-pct" id="ai-confidence-val">80%</span>
+                  <span class="gauge-title">AI CONVICTION</span>
+                </div>
+              </div>
+
+              <!-- Signal Score & Action Summary -->
+              <div class="ai-summary-details">
+                <div class="score-row">
+                  <span>Signal Score:</span>
+                  <b class="score-val bullish" id="ai-score-val">+75 / 100</b>
+                </div>
+                
+                <div class="score-meter-bar">
+                  <div class="meter-fill bullish" id="ai-meter-fill" style="width: 75%;"></div>
+                </div>
+
+                <div class="action-highlight-box action-buy-call" id="ai-action-box">
+                  <span class="act-label">DECISION:</span>
+                  <span class="act-title" id="ai-decision-title">WATCH CALL</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Specialist AI Matrix (6 Specialists) -->
+            <div class="specialist-matrix-grid">
+              
+              <div class="specialist-card">
+                <div class="sp-header">
+                  <span class="sp-name"><i class="fa-solid fa-arrow-trend-up"></i> Trend Analyzer</span>
+                  <span class="sp-score bullish" id="sp-trend-score">+25</span>
+                </div>
+                <div class="sp-val" id="sp-trend-val">BULLISH</div>
+              </div>
+
+              <div class="specialist-card">
+                <div class="sp-header">
+                  <span class="sp-name"><i class="fa-solid fa-scale-balanced"></i> PCR Analyzer</span>
+                  <span class="sp-score bullish" id="sp-pcr-score">+5</span>
+                </div>
+                <div class="sp-val" id="sp-pcr-val">1.08 (Bullish Bias)</div>
+              </div>
+
+              <div class="specialist-card">
+                <div class="sp-header">
+                  <span class="sp-name"><i class="fa-solid fa-cubes"></i> OI Buildup</span>
+                  <span class="sp-score bearish" id="sp-oi-score">-15</span>
+                </div>
+                <div class="sp-val" id="sp-oi-val">SHORT COVERING</div>
+              </div>
+
+              <div class="specialist-card">
+                <div class="sp-header">
+                  <span class="sp-name"><i class="fa-solid fa-compass-drafting"></i> Option Greeks</span>
+                  <span class="sp-score" id="sp-greeks-score">+15</span>
+                </div>
+                <div class="sp-val" id="sp-greeks-val">Delta: 0.50 | Theta: -3.7</div>
+              </div>
+
+              <div class="specialist-card">
+                <div class="sp-header">
+                  <span class="sp-name"><i class="fa-solid fa-shield-halved"></i> Market Regime</span>
+                  <span class="sp-score" id="sp-regime-score">+5</span>
+                </div>
+                <div class="sp-val" id="sp-regime-val">RANGE BOUND</div>
+              </div>
+
+              <div class="specialist-card">
+                <div class="sp-header">
+                  <span class="sp-name"><i class="fa-solid fa-water"></i> Volume Flow</span>
+                  <span class="sp-score bullish" id="sp-volume-score">+15</span>
+                </div>
+                <div class="sp-val" id="sp-volume-val">BULLISH Flow</div>
+              </div>
+
+            </div>
+
+            <!-- Option Greeks Radar Card -->
+            <div class="greeks-bar-grid">
+              <div class="greek-item">
+                <span class="g-name">DELTA</span>
+                <span class="g-val" id="greek-delta">0.50</span>
+                <div class="g-bar"><div class="g-fill" id="g-fill-delta" style="width: 50%;"></div></div>
+              </div>
+              <div class="greek-item">
+                <span class="g-name">GAMMA</span>
+                <span class="g-val" id="greek-gamma">0.0150</span>
+                <div class="g-bar"><div class="g-fill" id="g-fill-gamma" style="width: 55%;"></div></div>
+              </div>
+              <div class="greek-item">
+                <span class="g-name">THETA</span>
+                <span class="g-val" id="greek-theta">-3.72</span>
+                <div class="g-bar"><div class="g-fill theta" id="g-fill-theta" style="width: 37%;"></div></div>
+              </div>
+              <div class="greek-item">
+                <span class="g-name">VEGA</span>
+                <span class="g-val" id="greek-vega">13.98</span>
+                <div class="g-bar"><div class="g-fill" id="g-fill-vega" style="width: 70%;"></div></div>
+              </div>
+            </div>
+
+            <!-- AI Specialist Reasoning Log -->
+            <div class="ai-reasons-box">
+              <span class="reasons-heading"><i class="fa-solid fa-brain"></i> AI CONVICTION RATIONALE</span>
+              <ul class="reasons-list" id="ai-reasons-list">
+                <li><i class="fa-solid fa-circle-check"></i> Bullish Trend Confirmed on NIFTY Spot</li>
+                <li><i class="fa-solid fa-circle-check"></i> Short Covering Detected across ITM Strikes</li>
+                <li><i class="fa-solid fa-circle-check"></i> Balanced two-way institutional liquidity</li>
+              </ul>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= VIEW 2: DEDICATED PAPER TRADING SUITE ================= -->
+    <section id="paper-trading-view" class="view-panel">
+      <div class="paper-suite-grid">
+        
+        <!-- Interactive Paper Order Pad -->
+        <div class="panel-card paper-order-card">
+          <div class="panel-header">
+            <h2><i class="fa-solid fa-receipt"></i> Place Paper Order</h2>
+            <span class="tag-paper-mode">Zero Risk Simulation</span>
+          </div>
+
+          <div class="order-pad-form">
+            
+            <!-- Side Toggle: BUY / SELL -->
+            <div class="form-row">
+              <label class="form-label">Order Side</label>
+              <div class="side-selector-group">
+                <button type="button" class="btn-side buy active" id="btn-side-buy" onclick="setPaperSide('BUY')">
+                  <i class="fa-solid fa-arrow-trend-up"></i> BUY (Long)
+                </button>
+                <button type="button" class="btn-side sell" id="btn-side-sell" onclick="setPaperSide('SELL')">
+                  <i class="fa-solid fa-arrow-trend-down"></i> SELL (Short)
+                </button>
+              </div>
+            </div>
+
+            <!-- Asset & Option Type -->
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label">Asset</label>
+                <select id="paper-asset-select" class="form-select" onchange="onPaperAssetChange()">
+                  <option value="NIFTY">NIFTY 50 (Lot Size: 75)</option>
+                  <option value="BANKNIFTY">BANK NIFTY (Lot Size: 35)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Instrument Type</label>
+                <div class="option-type-group">
+                  <button type="button" class="opt-btn active" id="btn-opt-ce" onclick="setPaperOptType('CE')">CALL (CE)</button>
+                  <button type="button" class="opt-btn" id="btn-opt-pe" onclick="setPaperOptType('PE')">PUT (PE)</button>
+                  <button type="button" class="opt-btn" id="btn-opt-spot" onclick="setPaperOptType('FUT')">FUTURES</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Strike Selection & Order Type -->
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label">Select Strike</label>
+                <select id="paper-strike-select" class="form-select" onchange="onPaperStrikeChange()">
+                  <!-- Dynamically populated from option chain -->
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Order Execution Type</label>
+                <select id="paper-ordertype-select" class="form-select">
+                  <option value="MARKET">MARKET (Instant Fill)</option>
+                  <option value="LIMIT">LIMIT (Target Entry)</option>
+                  <option value="SL-LIMIT">SL-LIMIT (Breakout)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Entry Price & Lots -->
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label">Option Premium / Entry (₹)</label>
+                <input type="number" id="paper-entry-price" class="form-input" value="155.30" step="0.05" oninput="recalcPaperOrder()">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Position Lots (<span id="paper-lot-multiplier">75 Qty/Lot</span>)</label>
+                <div class="lot-stepper-lg">
+                  <button type="button" onclick="adjustPaperLots(-1)">-</button>
+                  <input type="number" id="paper-lots-input" value="2" min="1" max="100" oninput="recalcPaperOrder()">
+                  <button type="button" onclick="adjustPaperLots(1)">+</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Risk Management (Stop Loss & Target) -->
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label">Stop Loss (₹)</label>
+                <input type="number" id="paper-sl-price" class="form-input bearish" value="132.00" step="0.05" oninput="recalcPaperOrder()">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Target Price (₹)</label>
+                <input type="number" id="paper-tp-price" class="form-input bullish" value="201.90" step="0.05" oninput="recalcPaperOrder()">
+              </div>
+            </div>
+
+            <!-- Order Summary Card -->
+            <div class="order-summary-box">
+              <div class="summary-row">
+                <span>Total Quantity:</span>
+                <b id="paper-summary-qty">150 Qty</b>
+              </div>
+              <div class="summary-row">
+                <span>Margin Required:</span>
+                <b id="paper-summary-margin">₹23,295.00</b>
+              </div>
+              <div class="summary-row">
+                <span>Max Risk / Loss:</span>
+                <b class="bearish" id="paper-summary-loss">₹3,495.00</b>
+              </div>
+              <div class="summary-row">
+                <span>Estimated Profit:</span>
+                <b class="bullish" id="paper-summary-profit">₹6,990.00</b>
+              </div>
+              <div class="summary-row">
+                <span>Risk-Reward Ratio:</span>
+                <b class="highlight" id="paper-summary-rr">2.00 : 1</b>
+              </div>
+            </div>
+
+            <!-- Submit Order Button -->
+            <button type="button" class="btn-submit-paper-order" onclick="submitPaperOrder()">
+              <i class="fa-solid fa-paper-plane"></i> PLACE PAPER TRADE
+            </button>
+
+          </div>
+        </div>
+
+        <!-- Right Side: Paper Portfolio & Live Open Positions -->
+        <div class="paper-portfolio-column">
+          
+          <!-- Virtual Funds Summary Card -->
+          <div class="panel-card funds-card">
+            <div class="panel-header">
+              <h3><i class="fa-solid fa-wallet"></i> Virtual Portfolio Metrics</h3>
+              <button class="btn-reset-mini" onclick="promptResetWallet()"><i class="fa-solid fa-arrows-rotate"></i> Reset Fund</button>
+            </div>
+
+            <div class="funds-metric-grid">
+              <div class="fund-box">
+                <span class="f-label">TOTAL PORTFOLIO VALUE</span>
+                <span class="f-val" id="paper-tot-balance">₹10,00,000.00</span>
+              </div>
+              <div class="fund-box">
+                <span class="f-label">AVAILABLE MARGIN</span>
+                <span class="f-val" id="paper-avail-margin">₹10,00,000.00</span>
+              </div>
+              <div class="fund-box">
+                <span class="f-label">USED MARGIN</span>
+                <span class="f-val" id="paper-used-margin">₹0.00</span>
+              </div>
+              <div class="fund-box">
+                <span class="f-label">TOTAL UNREALIZED P&L</span>
+                <span class="f-val bullish" id="paper-floating-pnl">₹+0.00</span>
+              </div>
+              <div class="fund-box">
+                <span class="f-label">REALIZED P&L</span>
+                <span class="f-val" id="paper-realized-pnl">₹0.00</span>
+              </div>
+              <div class="fund-box">
+                <span class="f-label">NET ROI (%)</span>
+                <span class="f-val bullish" id="paper-roi-pct">+0.00%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Paper Positions Grid -->
+          <div class="panel-card open-paper-positions-card">
+            <div class="panel-header">
+              <h3><i class="fa-solid fa-list-check"></i> Active Paper Positions (<span id="paper-open-count">0</span>)</h3>
+              <button class="btn-panic-close" onclick="closeAllPaperPositions()"><i class="fa-solid fa-fire"></i> Close All Positions</button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="modern-table">
+                <thead>
+                  <tr>
+                    <th>TRADE ID</th>
+                    <th>CONTRACT</th>
+                    <th>SIDE</th>
+                    <th>QTY</th>
+                    <th>ENTRY</th>
+                    <th>LTP</th>
+                    <th>SL / TP</th>
+                    <th>PNL (₹)</th>
+                    <th>ACTION</th>
+                  </tr>
+                </thead>
+                <tbody id="paper-positions-tbody">
+                  <tr>
+                    <td colspan="9" class="empty-state">No open paper positions. Place an order to start virtual trading.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= VIEW 3: OPTION CHAIN MATRIX ================= -->
+    <section id="option-chain-view" class="view-panel">
+      <div class="panel-card full-width">
+        <div class="panel-header">
+          <div class="chain-header-left">
+            <h2><i class="fa-solid fa-layer-group"></i> Realtime Option Chain Intelligence</h2>
+            <div class="symbol-pills">
+              <button class="pill-btn active" id="oc-btn-nifty" onclick="loadOptionChain('NIFTY')">NIFTY 50</button>
+              <button class="pill-btn" id="oc-btn-banknifty" onclick="loadOptionChain('BANKNIFTY')">BANK NIFTY</button>
+            </div>
+          </div>
+
+          <div class="chain-summary-chips">
+            <div class="chip">Spot: <b id="oc-spot-val">₹23,897.70</b></div>
+            <div class="chip">PCR: <b id="oc-pcr-val">1.08</b></div>
+            <div class="chip">Max Pain: <b id="oc-maxpain-val">23,900</b></div>
+            <div class="chip">Call OI: <b id="oc-calloi-val">38.1M</b></div>
+            <div class="chip">Put OI: <b id="oc-putoi-val">41.2M</b></div>
+          </div>
+        </div>
+
+        <!-- Matrix Table -->
+        <div class="table-responsive">
+          <table class="option-chain-table" id="option-chain-table">
+            <thead>
+              <tr>
+                <th colspan="5" class="call-header">CALL OPTIONS (CE)</th>
+                <th class="strike-header">STRIKE</th>
+                <th colspan="5" class="put-header">PUT OPTIONS (PE)</th>
+              </tr>
+              <tr class="sub-headers">
+                <th>OI</th>
+                <th>CHG OI</th>
+                <th>VOL</th>
+                <th>IV</th>
+                <th>LTP</th>
+                <th class="strike-col">STRIKE</th>
+                <th>LTP</th>
+                <th>IV</th>
+                <th>VOL</th>
+                <th>CHG OI</th>
+                <th>OI</th>
+              </tr>
+            </thead>
+            <tbody id="option-chain-tbody">
+              <!-- Rendered dynamically by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= VIEW 4: POSITION BOOK & LIVE PNL ================= -->
+    <section id="positions-view" class="view-panel">
+      <div class="panel-card full-width">
+        <div class="panel-header">
+          <h2><i class="fa-solid fa-briefcase"></i> Active Position Book & Realtime P&L</h2>
+          <div class="pos-summary-hud">
+            <div class="hud-stat">
+              <span>Unrealized PnL:</span>
+              <b class="stat-pnl bullish" id="pos-unrealized-pnl">₹+0.00</b>
+            </div>
+            <div class="hud-stat">
+              <span>Realized PnL:</span>
+              <b class="stat-pnl" id="pos-realized-pnl">₹0.00</b>
+            </div>
+            <div class="hud-stat">
+              <span>Total PnL:</span>
+              <b class="stat-pnl bullish" id="pos-total-pnl">₹+0.00</b>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th>TRADE ID</th>
+                <th>TIME</th>
+                <th>CONTRACT</th>
+                <th>ACTION</th>
+                <th>QTY</th>
+                <th>ENTRY</th>
+                <th>CURRENT</th>
+                <th>STOP LOSS</th>
+                <th>TARGET</th>
+                <th>PNL (₹)</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="positions-table-tbody">
+              <tr>
+                <td colspan="12" class="empty-state">No open positions. Use the 1-Click Execution Desk to place a trade.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= VIEW 5: TRADE JOURNAL ================= -->
+    <section id="journal-view" class="view-panel">
+      <div class="panel-card full-width">
+        <div class="panel-header">
+          <h2><i class="fa-solid fa-book-journal-whills"></i> Automated Algorithmic Trade Journal</h2>
+          
+          <div class="journal-stats-chips">
+            <div class="chip">Total Trades: <b id="journal-total-trades">0</b></div>
+            <div class="chip">Win Rate: <b class="bullish" id="journal-win-rate">0%</b></div>
+            <div class="chip">Profit Factor: <b id="journal-profit-factor">2.45</b></div>
+            <div class="chip">Net PnL: <b class="bullish" id="journal-net-pnl">₹0.00</b></div>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="modern-table">
+            <thead>
+              <tr>
+                <th>TIMESTAMP</th>
+                <th>ASSET</th>
+                <th>SIGNAL</th>
+                <th>ENTRY</th>
+                <th>STOP LOSS</th>
+                <th>TARGET</th>
+                <th>CONFIDENCE</th>
+                <th>QTY</th>
+                <th>CAPITAL</th>
+                <th>STATUS</th>
+                <th>OUTCOME PNL</th>
+              </tr>
+            </thead>
+            <tbody id="journal-table-tbody">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= VIEW 6: BACKEND PIPELINE & DIAGNOSTICS ================= -->
+    <section id="diagnostics-view" class="view-panel">
+      <div class="panel-card full-width">
+        <div class="panel-header">
+          <h2><i class="fa-solid fa-server"></i> Backend Pipeline & Telemetry Diagnostics</h2>
+          <button class="btn-refresh" onclick="fetchDiagnostics()"><i class="fa-solid fa-rotate"></i> Ping Pipeline</button>
+        </div>
+
+        <!-- End-to-End Visual Architecture Pipeline -->
+        <div class="pipeline-flow-diagram">
+          
+          <div class="pipeline-stage">
+            <div class="stage-icon"><i class="fa-solid fa-network-wired"></i></div>
+            <div class="stage-title">Angel One SmartAPI</div>
+            <div class="stage-desc">Direct Official NSE Ingestion</div>
+            <span class="stage-status live">CONNECTED</span>
+          </div>
+
+          <div class="pipeline-arrow"><i class="fa-solid fa-arrow-right"></i></div>
+
+          <div class="pipeline-stage">
+            <div class="stage-icon"><i class="fa-solid fa-filter"></i></div>
+            <div class="stage-title">Feature Normalizer</div>
+            <div class="stage-desc">Spot, PCR, Greeks, OI Buildup</div>
+            <span class="stage-status live">EVALUATING</span>
+          </div>
+
+          <div class="pipeline-arrow"><i class="fa-solid fa-arrow-right"></i></div>
+
+          <div class="pipeline-stage">
+            <div class="stage-icon"><i class="fa-solid fa-brain"></i></div>
+            <div class="stage-title">6 AI Specialists</div>
+            <div class="stage-desc">Trend, PCR, OI, Greeks, Regime, Vol</div>
+            <span class="stage-status live">ACTIVE</span>
+          </div>
+
+          <div class="pipeline-arrow"><i class="fa-solid fa-arrow-right"></i></div>
+
+          <div class="pipeline-stage">
+            <div class="stage-icon"><i class="fa-solid fa-chess-knight"></i></div>
+            <div class="stage-title">FLOW Decision Hub</div>
+            <div class="stage-desc">Paper Risk & Order Sizing</div>
+            <span class="stage-status live">READY</span>
+          </div>
+
+          <div class="pipeline-arrow"><i class="fa-solid fa-arrow-right"></i></div>
+
+          <div class="pipeline-stage">
+            <div class="stage-icon"><i class="fa-solid fa-desktop"></i></div>
+            <div class="stage-title">REST & WS Streaming</div>
+            <div class="stage-desc">FLOW Paper Desk UI</div>
+            <span class="stage-status live">STREAMING</span>
+          </div>
+
+        </div>
+
+        <!-- Live Diagnostics Code/JSON Inspector -->
+        <div class="diagnostics-grid">
+          <div class="diag-box">
+            <h3><i class="fa-solid fa-terminal"></i> Live Evaluated Features Payload</h3>
+            <pre id="diag-json-features">Loading telemetry...</pre>
+          </div>
+          <div class="diag-box">
+            <h3><i class="fa-solid fa-list-check"></i> REST API Endpoint Registry</h3>
+            <div class="endpoint-list" id="diag-endpoint-list">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Application Logic -->
+  <script src="assets/app.js"></script>
+</body>
+</html>

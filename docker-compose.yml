@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  flow-terminal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flow_trading_desk
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - API_KEY=3xK955MH
+      - CLIENT_CODE=AACI729341
+      - PIN=0912
+      - TOTP_SECRET=ZG4AT5YV6GPJQNPPVHLESN5JZI
+    volumes:
+      - ./trade_journal.csv:/app/trade_journal.csv
